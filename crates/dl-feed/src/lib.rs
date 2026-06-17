@@ -4,6 +4,7 @@
 //! plus raw capture-to-disk for deterministic replay. Placeholder for now.
 
 pub mod capture;
+pub mod capturing;
 pub mod error;
 
 pub use error::FeedError;
