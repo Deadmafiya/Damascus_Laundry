@@ -9,10 +9,13 @@
 //! (Phase 1) is the only place floats may appear. The `no_floats_in_values`
 //! CI guard in 02-02-06 enforces this.
 
+pub mod decoder;
 pub mod error;
+pub mod mint;
 pub mod pool;
 pub mod registry;
 
 pub use error::DecodeError;
+pub use mint::{ClosureMintSource, HardcodedMintSource, MintDecimalsSource};
 pub use pool::{AmmKind, Pool, Pubkey};
 pub use registry::PoolRegistry;
