@@ -151,11 +151,9 @@ version = "0.0.0"
 dependencies = [
  "bs58",
  "dl-core",
- "dl-detect",
  "dl-feed",
- "dl-ledger",
- "dl-sim",
  "dl-state",
+ "thiserror",
  "tokio",
  "tracing",
  "tracing-subscriber",
