@@ -16,11 +16,10 @@ shared with the eventual live bot; only the executor changes when (and if) we go
 v1.0 ships when the engine reproduces the macro reality of Solana arbitrage (notably the
 ~96% failure rate) and replays deterministically.
 
-## Current Milestone
-
-**v1.0 Accurate Paper-Trading Engine** (v1.0.0)
-Status: In progress
-Phases: 1 of 7 complete
+**Current Milestone**
+- **v1.0 Accurate Paper-Trading Engine** (v1.0.0)
+- Status: In progress
+- Phases: 2 of 7 complete
 
 ## Phases
 
@@ -33,7 +32,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | Phase | Name | Plans | Status | Completed |
 |-------|------|-------|--------|-----------|
 | 1 | Foundations | 1 | ✅ Complete | 2026-06-17 |
-| 2 | Ingestion + Pool State (read-only) | TBD | Not started | - |
+| 2 | Ingestion + Pool State (read-only) | 2 | ✅ Complete | 2026-06-18 |
 | 3 | Opportunity Detection | TBD | Not started | - |
 | 4 | Profit / Cost / Sizing | TBD | Not started | - |
 | 5 | Simulation Core + Paper Ledger | TBD | Not started | - |
@@ -63,25 +62,23 @@ inherits reproducibility for free.
 
 ### Phase 2: Ingestion + Pool State (read-only)
 
+**Status:** ✅ Complete (2026-06-18) — 2/2 plans
 **Goal:** Subscribe to live Solana state for target DEX pools, decode it into normalized
 in-memory pool state, and record the raw feed to disk so it can be replayed
 deterministically.
 **Depends on:** Phase 1 (`Feed` trait, fixed-point, deterministic harness)
-**Research:** Likely — exact program IDs / account-layout offsets are UNVERIFIED in
-research (Raydium 404, Orca thin SPA). Must confirm against live IDL/SDK before decoding.
-**Research topics:** Raydium AMM v4 + CLMM account layouts & program IDs; Orca Whirlpool
-field layout & tick math; (optionally) Meteora DLMM bins. Confirm one CLOB leg (Phoenix /
-OpenBook v2) for the "fresh quote" side.
+**Research:** ✅ Complete — Raydium AMM v4 program ID + 752-byte AmmInfo layout verified
+against `raydium-io/raydium-amm` master. Orca Whirlpool deferred to Phase 3 (or skip for v1.0).
 
 **Scope:**
-- Standard JSON-RPC WebSocket feed (`accountSubscribe`) behind the `Feed` trait
-- Decoders for the first AMM type (constant-product) → normalized pool state
-- A "fresh quote" venue (order book) leg for arb pairing
-- Raw feed capture-to-disk + deterministic replay source
+- Standard JSON-RPC WebSocket feed (`accountSubscribe`) behind the `Feed` trait ✅
+- Decoders for the first AMM type (constant-product) → normalized pool state ✅ (Raydium AMM v4)
+- A "fresh quote" venue (order book) leg for arb pairing — deferred to Phase 3
+- Raw feed capture-to-disk + deterministic replay source ✅
 
 **Plans:**
-- [ ] 02-01: WebSocket `Feed` impl + raw capture/replay
-- [ ] 02-02: Pool decoders (constant-product AMM) → normalized state, validated vs SDK/Jupiter
+- [x] 02-01: WebSocket `Feed` impl + raw capture/replay
+- [x] 02-02: Pool decoders (constant-product AMM) → normalized state, validated vs SDK/Jupiter
 
 ### Phase 3: Opportunity Detection
 
@@ -183,4 +180,4 @@ config-driven params, multi-pool/multi-DEX scale-up. (Ships v1.0.)
 
 ---
 *Roadmap created: 2026-06-17*
-*Last updated: 2026-06-17 (Phase 1 complete)*
+*Last updated: 2026-06-18 (Phase 2 complete — 2/2 plans: 02-01 WS feed + capture, 02-02 Raydium AMM v4 decoder + dry-run)*
