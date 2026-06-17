@@ -87,7 +87,7 @@ Protected elements (carried forward; reaffirm in each PLAN):
 
 ### Git State
 
-Last commit: 2c95d55 — feat(01-foundations): deterministic Rust workspace + fixed-point core
+Last commit: b094547 — feat(01-foundations): deterministic Rust workspace + fixed-point core
 Branch: main
 Feature branches merged: none
 
