@@ -41,3 +41,8 @@ jobs:
 
       - name: Test
         run: cargo test --workspace
+
+      - name: Float-free invariant
+        run: |
+          cargo test -p dl-feed --test fixed_point_no_floats
+          cargo test -p dl-state --test fixed_point_no_floats
