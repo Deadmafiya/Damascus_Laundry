@@ -220,6 +220,8 @@ name = "dl-state"
 version = "0.0.0"
 dependencies = [
  "dl-core",
+ "proptest",
+ "thiserror",
  "tracing",
 ]
 
