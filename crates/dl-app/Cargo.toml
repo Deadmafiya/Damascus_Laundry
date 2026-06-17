@@ -10,10 +10,12 @@ path = "src/main.rs"
 
 [dependencies]
 dl-core.workspace = true
-dl-feed.workspace = true
+dl-feed = { workspace = true, features = ["ws"] }
 dl-state.workspace = true
 dl-detect.workspace = true
 dl-sim.workspace = true
 dl-ledger.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+bs58 = "0.5"
