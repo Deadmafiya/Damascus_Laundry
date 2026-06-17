@@ -53,6 +53,18 @@ pub struct Cycle {
 }
 
 impl Cycle {
+    /// Build a `Cycle` from a list of legs. `weight_sum` is computed
+    /// from the leg weights; `expected_profit_bps` is left at 0 (use
+    /// [`Cycle::compute_expected_profit_bps`] to fill it).
+    pub fn new(legs: Vec<Leg>) -> Self {
+        let weight_sum = legs.iter().map(|l| l.weight).sum();
+        Self {
+            legs,
+            weight_sum,
+            expected_profit_bps: 0,
+        }
+    }
+
     /// Number of legs (== number of pool hops). A 2-cycle = direct
     /// arb on a single pair; a 3-cycle = triangle arb.
     pub fn n_legs(&self) -> usize {
@@ -62,6 +74,12 @@ impl Cycle {
     /// Borrow the legs.
     pub fn legs(&self) -> &[Leg] {
         &self.legs
+    }
+
+    /// Recompute [`Self::expected_profit_bps`] from the current
+    /// `weight_sum` using [`compute_profit_bps`].
+    pub fn compute_expected_profit_bps(&mut self) {
+        self.expected_profit_bps = compute_profit_bps(self.weight_sum);
     }
 
     /// Simulate the cycle forward through the constant-product fill

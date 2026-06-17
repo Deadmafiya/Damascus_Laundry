@@ -78,6 +78,11 @@ pub struct Edge {
     /// Pool this edge was derived from (so the simulator can look up
     /// reserves/fees for the forward fill).
     pub pool: dl_state::Pubkey,
+    /// `true` iff this edge is the `base -> quote` direction of the
+    /// pool. `false` means it's the `quote -> base` direction. Lets
+    /// the BF cycle-recovery step populate `Leg::direction` without a
+    /// `PoolRegistry` lookup.
+    pub is_base_to_quote: bool,
 }
 
 /// The price graph itself. `n` is the number of distinct mints; the
@@ -213,12 +218,14 @@ pub fn build_from_pools(pools: &[Pool]) -> Result<Graph, DetectError> {
             to: quote_id,
             weight: weight_from_rate(rate_b2q),
             pool: pool.address,
+            is_base_to_quote: true,
         });
         g.push_edge(Edge {
             from: quote_id,
             to: base_id,
             weight: weight_from_rate(rate_q2b),
             pool: pool.address,
+            is_base_to_quote: false,
         });
     }
     Ok(g)
