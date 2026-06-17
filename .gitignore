@@ -7,6 +7,9 @@
 /data
 *.replay
 
+# Agent scratch space (plans, session state) — not part of project deliverables
+.hermes/
+
 # Local env / secrets — NEVER commit keys (paper trading uses none in v1.0)
 .env
 *.key

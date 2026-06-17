@@ -11,7 +11,7 @@ use crate::clock::Slot;
 /// Intentionally minimal for Phase 1; Phase 2 extends this with decoded pool/transaction
 /// variants. The `slot` on each event is "when our stream saw it" — the basis for the
 /// no-look-ahead replay guarantee.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum FeedEvent {
     /// A slot boundary was observed.
     Slot { slot: Slot },
