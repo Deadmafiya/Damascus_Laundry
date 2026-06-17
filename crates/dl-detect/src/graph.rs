@@ -11,7 +11,7 @@
 //! rates)` and the standard Bellman-Ford negative-cycle test recovers
 //! profitable cycles. That math requires a `ln` primitive in the value
 //! path, which (a) is expensive to compute to the precision we need
-//! without `f64`, and (b) is a leaky abstraction across the fixed-point
+//! in fixed-point, and (b) is a leaky abstraction across the fixed-point
 //! boundary.
 //!
 //! For v1.0 we use the **linearized** formulation instead:

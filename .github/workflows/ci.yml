@@ -46,3 +46,4 @@ jobs:
         run: |
           cargo test -p dl-feed --test fixed_point_no_floats
           cargo test -p dl-state --test fixed_point_no_floats
+          cargo test -p dl-detect --test fixed_point_no_floats
