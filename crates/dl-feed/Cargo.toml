@@ -14,7 +14,14 @@ serde_json = "1"
 
 [features]
 default = []
-ws = ["dep:tokio", "dep:tokio-tungstenite", "dep:tokio-stream", "dep:url", "dep:futures-util"]
+ws = [
+  "dep:tokio",
+  "dep:tokio-tungstenite",
+  "dep:tokio-stream",
+  "dep:url",
+  "dep:futures-util",
+  "dep:bs58",
+]
 
 [dependencies.tokio]
 optional = true
@@ -37,3 +44,7 @@ version = "2"
 [dependencies.futures-util]
 optional = true
 version = "0.3"
+
+[dependencies.bs58]
+optional = true
+version = "0.5"

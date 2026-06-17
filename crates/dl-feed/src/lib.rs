@@ -6,5 +6,7 @@
 pub mod capture;
 pub mod capturing;
 pub mod error;
+#[cfg(feature = "ws")]
+pub mod ws_feed;
 
 pub use error::FeedError;
