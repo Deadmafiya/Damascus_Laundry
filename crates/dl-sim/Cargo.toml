@@ -1,0 +1,11 @@
+[package]
+name = "dl-sim"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+dl-core.workspace = true
+dl-state.workspace = true
+dl-detect.workspace = true
+tracing.workspace = true

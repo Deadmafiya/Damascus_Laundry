@@ -1,0 +1,19 @@
+[package]
+name = "dl-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "dl-app"
+path = "src/main.rs"
+
+[dependencies]
+dl-core.workspace = true
+dl-feed.workspace = true
+dl-state.workspace = true
+dl-detect.workspace = true
+dl-sim.workspace = true
+dl-ledger.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true

@@ -1,0 +1,35 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/dl-core",
+    "crates/dl-feed",
+    "crates/dl-state",
+    "crates/dl-detect",
+    "crates/dl-sim",
+    "crates/dl-ledger",
+    "crates/dl-app",
+]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2021"
+license = "Apache-2.0"
+authors = ["damascus_laundry"]
+repository = "https://github.com/jito-foundation/jito-solana"
+
+[workspace.dependencies]
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+proptest = "1"
+
+# Internal crates
+dl-core = { path = "crates/dl-core" }
+dl-feed = { path = "crates/dl-feed" }
+dl-state = { path = "crates/dl-state" }
+dl-detect = { path = "crates/dl-detect" }
+dl-sim = { path = "crates/dl-sim" }
+dl-ledger = { path = "crates/dl-ledger" }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

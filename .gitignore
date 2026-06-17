@@ -1,0 +1,18 @@
+# Rust
+/target
+**/*.rs.bk
+*.pdb
+
+# Captured feed streams / replay artifacts (Phase 2+)
+/data
+*.replay
+
+# Local env / secrets — NEVER commit keys (paper trading uses none in v1.0)
+.env
+*.key
+*.keypair
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
