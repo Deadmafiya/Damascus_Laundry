@@ -119,6 +119,7 @@ impl<W: Write> CaptureWriter<W> {
 
 /// Replays a capture from an underlying `Read`. Implements `Feed` so it is
 /// a drop-in for the other `Feed` impls in the engine.
+#[derive(Debug)]
 pub struct CapturedFeed<R: Read> {
     source: R,
     /// Bytes we've already consumed from the source but not yet parsed into
