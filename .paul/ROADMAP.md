@@ -15,11 +15,10 @@ and a paper ledger — then prove its honesty against on-chain ground truth. Eve
 shared with the eventual live bot; only the executor changes when (and if) we go live.
 v1.0 ships when the engine reproduces the macro reality of Solana arbitrage (notably the
 ~96% failure rate) and replays deterministically.
-
 **Current Milestone**
 - **v1.0 Accurate Paper-Trading Engine** (v1.0.0)
 - Status: In progress
-- Phases: 2 of 7 complete
+- Phases: 3 of 7 complete
 
 ## Phases
 
@@ -82,6 +81,7 @@ against `raydium-io/raydium-amm` master. Orca Whirlpool deferred to Phase 3 (or 
 
 ### Phase 3: Opportunity Detection
 
+**Status:** ✅ Complete (2026-06-18) — 1/1 plan
 **Goal:** From in-memory state, flag atomic-arbitrage opportunities and recover the trade
 path; prove it by flagging known historical arb windows on replayed data.
 **Depends on:** Phase 2 (normalized pool state + replay)
@@ -93,7 +93,8 @@ path; prove it by flagging known historical arb windows on replayed data.
 - Handle Bellman-Ford gotchas (returns first cycle, reports % not absolute)
 
 **Plans:**
-- [ ] 03-01: Price graph builder + negative-cycle detection + path recovery
+- [x] 03-01: Price graph builder + negative-cycle detection + path recovery
+  - **Implementation note:** ended up using **DFS over the full graph** (not Bellman-Ford pred-chain) because BF's "best predecessor" tracking loses cycles in graphs with mixed positive/negative edges. The 3-leg triangle test (2 loss legs + 1 profit leg) was the key case that exposed this. Documented in `graph.rs` and `03-SUMMARY.md`.
 
 ### Phase 4: Profit / Cost / Sizing
 
@@ -180,4 +181,4 @@ config-driven params, multi-pool/multi-DEX scale-up. (Ships v1.0.)
 
 ---
 *Roadmap created: 2026-06-17*
-*Last updated: 2026-06-18 (Phase 2 complete — 2/2 plans: 02-01 WS feed + capture, 02-02 Raydium AMM v4 decoder + dry-run)*
+*Last updated: 2026-06-18 (Phase 3 complete — 1/1 plan: 03-01 graph + DFS cycle detection)*
