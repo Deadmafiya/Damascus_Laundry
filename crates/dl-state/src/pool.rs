@@ -45,9 +45,15 @@ impl From<[u8; 32]> for Pubkey {
 pub enum AmmKind {
     /// Raydium AMM v4 — constant-product. The only kind we decode in v1.0.
     RaydiumAmmV4,
+    /// Orca Whirlpool — concentrated-liquidity (Q64.64 sqrt_price,
+    /// tick-indexed). Decoded in Phase 7 / plan 02.
+    OrcaWhirlpool,
+    /// Meteora DLMM — bin-based (per-bin reserves + per-bin price,
+    /// `SCALE_OFFSET` = 1e12). Decoded in Phase 7 / plan 02.
+    MeteoraDlmm,
     // v1.1+:
-    // OrcaWhirlpool,  // CLMM
-    // MeteoraDlmm,   // bin
+    // Phoenix, // orderbook
+    // OpenBook, // v2 orderbook
 }
 
 impl AmmKind {
@@ -58,6 +64,8 @@ impl AmmKind {
     pub fn discriminator(self) -> Option<u8> {
         match self {
             AmmKind::RaydiumAmmV4 => None,
+            AmmKind::OrcaWhirlpool => None,
+            AmmKind::MeteoraDlmm => None,
         }
     }
 }
