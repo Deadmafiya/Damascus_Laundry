@@ -18,7 +18,7 @@ v1.0 ships when the engine reproduces the macro reality of Solana arbitrage (not
 **Current Milestone**
 - **v1.0 Accurate Paper-Trading Engine** (v1.0.0)
 - Status: In progress
-- Phases: 3 of 7 complete
+- Phases: 4 of 7 complete
 
 ## Phases
 
@@ -32,8 +32,8 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 |-------|------|-------|--------|-----------|
 | 1 | Foundations | 1 | ✅ Complete | 2026-06-17 |
 | 2 | Ingestion + Pool State (read-only) | 2 | ✅ Complete | 2026-06-18 |
-| 3 | Opportunity Detection | TBD | Not started | - |
-| 4 | Profit / Cost / Sizing | TBD | Not started | - |
+| 3 | Opportunity Detection | 1 | ✅ Complete | 2026-06-18 |
+| 4 | Profit / Cost / Sizing | 1 | ✅ Complete | 2026-06-18 |
 | 5 | Simulation Core + Paper Ledger | TBD | Not started | - |
 | 6 | Testing, Reconciliation & Calibration | TBD | Not started | - |
 | 7 | Observability & Hardening | TBD | Not started | - |
@@ -98,6 +98,7 @@ path; prove it by flagging known historical arb windows on replayed data.
 
 ### Phase 4: Profit / Cost / Sizing
 
+**Status:** ✅ Complete (2026-06-18) — 1/1 plan
 **Goal:** Turn a detected cycle into an honest per-opportunity net-profit estimate —
 AMM-curve-accurate fills, optimal sizing, full cost netting.
 **Depends on:** Phase 3 (detected cycles)
@@ -105,14 +106,32 @@ AMM-curve-accurate fills, optimal sizing, full cost netting.
 
 **Scope:**
 - AMM-aware output math (fill each leg against real reserves/curve, sequential
-  state mutation across legs — never mid-price); CLMM tick-walking where applicable
-- Optimal-input sizing against the convex slippage curve (marginal revenue = 0)
-- Cost netting: base sig fee, priority fee (`CU_limit × CU_price/1e6`), Jito tip + 5% fee
-- Optional: `simulateTransaction` integration as the exact gross-edge oracle
+  state mutation across legs — never mid-price); CLMM tick-walking where applicable ✅
+- Optimal-input sizing against the convex slippage curve (marginal revenue = 0) ✅
+  — **Implementation note:** ended up using **golden-section search** with inverse
+  golden ratio `1/φ = 0.618` (NOT `φ = 1.618`, which overflows `u128` for `span < 1.6× boundary`).
+  The `gross_output(input)` curve is concave-down (constant-product slippage is monotone
+  diminishing-returns), so the sum `gross − input − cost` is unimodal on any closed
+  interval. 64 iters × ~1 µs per fill = ~64 µs/cycle. The closed-form analytical inverse
+  was rejected as fragile to per-leg fee differences.
+- Cost netting: base sig fee, priority fee (`CU_limit × CU_price/1e6`), Jito tip + 5% fee ✅
+- Optional: `simulateTransaction` integration as the exact gross-edge oracle — deferred
+  to Phase 6 (calibration)
 
 **Plans:**
-- [ ] 04-01: AMM fill math + optimal sizing
-- [ ] 04-02: Cost model + (optional) simulateTransaction gross-edge oracle
+- [x] 04-01: AMM fill math + optimal sizing + cost model + NetProfit boundary object
+  - **Implementation note:** `Cycle`/`Leg`/`Direction` types relocated from `dl-detect::cycle`
+    to `dl-state::cycle` to break the dl-detect ↔ dl-sim cyclic dep. `dl-detect::cycle`
+    re-exports the types for backward compatibility. The new `simulate_through_pools` is a
+    free function (not an `impl Cycle` block) — Rust's orphan rule forbids inherent impls
+    on types defined in another crate.
+  - **Cost baseline:** `default_busy` (1M-lamport tip, 6 sigs, 600k CU, 50k µlamports/CU)
+    totals **1,110,000 lamports**. The plan had 1,080,000; off-by-1e3 in the priority-fee
+    math, corrected in commit `f7451d6`. `default_min` (10k tip) totals 26,200 lamports.
+  - **Float-free invariant:** new CI guard `crates/dl-sim/tests/fixed_point_no_fractional.rs`
+    scans `dl-sim/src/` for `f32`/`f64`/`float` substrings, fails on any match. Section
+    headers renamed "Float-free invariant" → "Integer-only invariant" to avoid the
+    substring self-match.
 
 ### Phase 5: Simulation Core + Paper Ledger
 
@@ -181,4 +200,4 @@ config-driven params, multi-pool/multi-DEX scale-up. (Ships v1.0.)
 
 ---
 *Roadmap created: 2026-06-17*
-*Last updated: 2026-06-18 (Phase 3 complete — 1/1 plan: 03-01 graph + DFS cycle detection)*
+*Last updated: 2026-06-18 (Phase 4 complete — 1/1 plan: 04-01 AMM fill + golden-section sizer + cost model + NetProfit + dl-state::cycle refactor + dl-sim float-free guard)*

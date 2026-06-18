@@ -12,6 +12,7 @@
 use thiserror::Error;
 
 use dl_core::MathError;
+use dl_sim::error::SimError;
 use dl_state::Pubkey;
 
 #[derive(Debug, Error)]
@@ -44,4 +45,30 @@ pub enum DetectError {
     /// for filtering out stale-state false positives in production.
     #[error("simulation rejected cycle: net output = {0}")]
     SimulationMismatch(u128),
+}
+
+/// Map a [`SimError`] from the per-cycle simulator to the detector's
+/// own error type. This is the crate boundary that keeps
+/// `dl-detect::Cycle::simulate_through_pools` ergonomic for callers
+/// (they only see [`DetectError`], not the sim layer's internals).
+///
+/// Mapping rules:
+/// - `Math` → `InvalidMath` (same `MathError` type, the chain works
+///   transparently via the `?` operator)
+/// - `PoolNotFound(pk)` → `PoolNotFound(pk)` (a pool not in the
+///   registry is the same failure mode for the detector and the sim)
+/// - `ZeroReserve` / `FeeTooHigh` / `CycleTooLong` →
+///   `SimulationMismatch(0)` — these defensive variants would never
+///   come from a detector-constructed cycle, but a defensive mapping
+///   keeps the conversion total.
+impl From<SimError> for DetectError {
+    fn from(err: SimError) -> Self {
+        match err {
+            SimError::Math(e) => DetectError::InvalidMath(e),
+            SimError::PoolNotFound(pk) => DetectError::PoolNotFound(pk),
+            SimError::ZeroReserve | SimError::FeeTooHigh(_) | SimError::CycleTooLong(_) => {
+                DetectError::SimulationMismatch(0)
+            }
+        }
+    }
 }

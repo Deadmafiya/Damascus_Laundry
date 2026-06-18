@@ -15,11 +15,11 @@
 //! - Determinism: two calls return byte-identical `OptimalInput` values.
 //! - Edge case: `max_input == 0` returns `NoTrade { best_negative_net: 0 }`.
 
-use dl_detect::cycle::{Cycle, Direction, Leg};
 use dl_sim::cost::CostModel;
 use dl_sim::error::SimError;
 use dl_sim::simulate::simulate_cycle;
 use dl_sim::sizing::{find_optimal_input, OptimalInput};
+use dl_state::cycle::{Cycle, Direction, Leg};
 use dl_state::pool::{AmmKind, Pool, Pubkey};
 use dl_state::PoolRegistry;
 

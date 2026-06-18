@@ -24,7 +24,7 @@
 //! system calls. Two calls on the same inputs are bit-identical.
 
 use dl_core::fixed::mul_div_floor;
-use dl_detect::cycle::{Cycle, Direction, Leg};
+use dl_state::cycle::{Cycle, Direction, Leg};
 use dl_state::{Pool, PoolRegistry, Pubkey};
 
 use crate::error::SimError;

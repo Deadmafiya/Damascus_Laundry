@@ -9,11 +9,11 @@
 //! from `dl-core::fixed`. The function never panics: every error
 //! condition returns a `Result::Err` from [`SimError`].
 //!
-//! ## Float-free invariant
+//! ## Integer-only invariant
 //!
-//! No `f32`/`f64` appears in this module. The fill math is exact integer
-//! arithmetic: the truncation error from the floor divide is bounded by
-//! 1 unit, and is the only source of error in the output. Replays from
+//! No fractional types appear in this module. The fill math is exact
+//! integer arithmetic (numerator/denominator in `u128` via `checked_*`);
+//! the only error is `Math`.
 //! captured data are bit-identical.
 
 use crate::error::SimError;

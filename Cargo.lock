@@ -172,6 +172,7 @@ name = "dl-detect"
 version = "0.0.0"
 dependencies = [
  "dl-core",
+ "dl-sim",
  "dl-state",
  "thiserror",
  "tracing",
@@ -209,7 +210,6 @@ name = "dl-sim"
 version = "0.0.0"
 dependencies = [
  "dl-core",
- "dl-detect",
  "dl-state",
  "proptest",
  "thiserror",

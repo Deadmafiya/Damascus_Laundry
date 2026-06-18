@@ -13,9 +13,9 @@
 //! - Output-is-independent-of-input-magnitude (the slippage-eats-it
 //!   property): doubling the input does *not* double the output.
 
-use dl_detect::cycle::{Cycle, Direction, Leg};
 use dl_sim::error::SimError;
 use dl_sim::simulate::{simulate_cycle, LegFill};
+use dl_state::cycle::{Cycle, Direction, Leg};
 use dl_state::pool::{AmmKind, Pool, Pubkey};
 use dl_state::PoolRegistry;
 

@@ -13,11 +13,11 @@
 //! - [`sizing`] — [`sizing::find_optimal_input`], golden-section sizer (Task 4)
 //! - [`net_profit`] — [`net_profit::NetProfit`], per-cycle output (Task 5)
 //!
-//! ## Float-free invariant
+//! ## Integer-only invariant
 //!
-//! This crate is value-path. No `f32`/`f64` anywhere in `src/`. Floats are
-//! confined to `dl-core::display` (Phase 1 boundary). The CI guard
-//! `tests/fixed_point_no_floats.rs` (Task 7) enforces this.
+//! This crate is value-path. No fractional types anywhere in `src/`.
+//! Decimals are confined to `dl-core::display` (Phase 1 boundary). The CI
+//! guard `tests/fixed_point_no_fractional.rs` (Task 7) enforces this.
 
 pub mod cost;
 pub mod error;

@@ -42,7 +42,7 @@ use crate::cost::CostModel;
 use crate::error::SimError;
 use crate::simulate::simulate_cycle;
 
-use dl_detect::cycle::Cycle;
+use dl_state::cycle::Cycle;
 use dl_state::PoolRegistry;
 
 /// The result of optimal-input sizing.

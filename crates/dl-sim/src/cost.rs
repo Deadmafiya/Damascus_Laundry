@@ -23,11 +23,11 @@
 //! unrealistic; the largest realistic per-tx cost is on the order of
 //! 10^9 lamports).
 //!
-//! ## Float-free invariant
+//! ## Integer-only invariant
 //!
-//! No `f32`/`f64` appears in this module. All cost components are
-//! `u64` integer lamports.
-
+//! No fractional types appear in this module. All cost components are
+//! computed in `u64` lamports via `checked_*` arithmetic; the only error
+//! is `Math` (overflow / div-by-zero).
 use crate::error::SimError;
 
 /// Base signature fee in lamports. Solana protocol constant.

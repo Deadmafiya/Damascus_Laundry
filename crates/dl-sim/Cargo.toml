@@ -7,7 +7,6 @@ license.workspace = true
 [dependencies]
 dl-core.workspace = true
 dl-state.workspace = true
-dl-detect.workspace = true
 tracing.workspace = true
 thiserror = "1"
 

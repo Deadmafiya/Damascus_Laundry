@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 dl-core.workspace = true
+dl-sim.workspace = true
 dl-state.workspace = true
 tracing.workspace = true
 thiserror = "1"
