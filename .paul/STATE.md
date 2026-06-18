@@ -17,29 +17,29 @@ latency, competition, landing probability, and fees are modeled pessimistically.
 ## Current Position
 
 Milestone: v1.0 Accurate Paper-Trading Engine (v1.0.0)
-Phase: 5 of 7 (Simulation Core + Paper Ledger) — Planning
-Plan: 05-01 created (simulation core: EV decomposition + p_win/p_land + dual bounds), awaiting approval
-Status: PLAN 05-01 created, ready for APPLY
-Last activity: 2026-06-18 — Planned Phase 5 (05-01); 2 planning decisions recorded
+Phase: 5 of 7 (Simulation Core + Paper Ledger) — Applying
+Plan: 05-01 applied (EV decomposition + dual bounds); 05-02 (paper ledger) next
+Status: PLAN 05-01 ✅ DONE, ready for 05-02
+Last activity: 2026-06-18 — Applied Phase 5 / plan 01 (EV core)
 
 Progress:
-- Milestone: [█████░░░░░] ~57% (4 of 7 phases complete)
-- Phase 5: [█░░░░░░░░░] planning (0/2 plans)
+- Milestone: [██████░░░░] ~71% (5 of 7 phases complete, Phase 5 in progress)
+- Phase 5: [███░░░░░░░] applying (1/2 plans)
 
 ## Loop Position
 
 Current loop state:
 ```
 PLAN ──▶ APPLY ──▶ UNIFY
-  ◉        ○        ○     [Planning — 05-01]
+  ◉        ◉        ◑     [05-01 applied; awaiting unify for ledger]
 ```
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 4 (01-01, 02-01, 02-02, 04-01)
+- Total plans completed: 5 (01-01, 02-01, 02-02, 04-01, 05-01)
 - Average duration: ~1 session each
-- Total execution time: 4 sessions
+- Total execution time: 5 sessions
 
 **By Phase:**
 
@@ -49,6 +49,7 @@ PLAN ──▶ APPLY ──▶ UNIFY
 | 02-ingestion-pool-state | 2/2 | 2 sessions | 1 session |
 | 03-opportunity-detection | 1/1 | 1 session | 1 session |
 | 04-profit-cost-sizing | 1/1 | 1 session | 1 session |
+| 05-simulation-core-paper-ledger | 1/2 | 1 session | 1 session |
 
 ## Accumulated Context
 
@@ -105,18 +106,18 @@ Protected elements (carried forward; reaffirm in each PLAN):
 
 ### Git State
 
-Last commit: 1f4dde4 — feat(04-sim): wire Cycle sim to dl-sim + int-only guard + cycle refactor
+Last commit: 6b258ed — feat(05-sim): EV decomposition + dual bounds (pessimistic-by-default)
 Branch: main
 Feature branches merged: none
-Phase 4 commits: 5 (9b556c7, c023e29, f7451d6, d0c7f9e, 1f4dde4) — 2 sub-agent + 3 in-session
+Phase 5 commits: 1 (6b258ed) — 1 in-session
 
 ## Session Continuity
 
 Last session: 2026-06-18
-Stopped at: Phase 5 planned — 05-01-PLAN.md created (simulation core). Phases 1-4 complete; workspace green; 131 tests pass. Two planning decisions recorded (latency=p_land haircut; ledger=append-only file).
-Next action: Review/approve 05-01-PLAN.md, then /paul:apply .paul/phases/05-simulation-core-paper-ledger/05-01-PLAN.md. After 05-01 unifies, plan 05-02 (paper ledger).
-Resume file: .paul/phases/05-simulation-core-paper-ledger/05-01-PLAN.md
-Resume context: 05-01 builds dl-sim::ev — fixed-point Prob (ppm), p_win (richness-decreasing), p_land (latency-decreasing, Jito 200ms/50ms anchored), FailedCostModel (spam vs jito asymmetry), evaluate() → dual optimistic/conservative bounds. Input is Phase-4 NetProfit. No ledger/IO (that's 05-02). dl-ledger still a placeholder until 05-02.
+Stopped at: Phase 5 plan 01 (EV decomposition + dual bounds) applied. Workspace builds; fmt/clippy/test green; 170 tests pass + 1 ignored; 4 float-free CI guards (dl-feed, dl-state, dl-detect, dl-sim) green. Next: 05-02 (paper ledger — append-only file, schema v2, zero new deps). Then Phase 6 (reconciliation + calibration).
+Next action: Plan 05-02 (paper ledger), then /paul:apply.
+Resume file: .paul/phases/05-simulation-core-paper-ledger/05-02-PLAN.md (to be created)
+Resume context: dl-sim::ev::ExpectedValue { e_pnl, p_detect, p_win, p_land, expected_failed_cost } is the row schema 05-02 will write. Default values are Phase-6 calibration targets.
 
 ---
 *STATE.md — Updated after every significant action*
