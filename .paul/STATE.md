@@ -17,14 +17,14 @@ latency, competition, landing probability, and fees are modeled pessimistically.
 ## Current Position
 
 Milestone: v1.0 Accurate Paper-Trading Engine (v1.0.0)
-Phase: 6 of 7 (Reconciliation + Calibration) — Applied (plan 01)
-Plan: 06-01 applied (golden-file replay + DST fault injection + invariants). Phase 6 / plan 01 complete.
-Status: PLAN 06-01 APPLIED — dl-recon crate built (6 source files, 4 test files), 42 new tests (253 total), golden hash committed (9_565_092_578_115_491_832), float-free CI guard added.
-Last activity: 2026-06-18 — Applied Phase 6 / plan 01 (reconciliation harness)
+Phase: 6 of 7 (Reconciliation + Calibration) — Applied
+Plan: 06-01 + 06-02 applied. Phase 6 complete (live Jito pull is an open gate).
+Status: PLAN 06-02 APPLIED — dl-recon::onchain (anchor loader + compare + calibrate), dl-recon-overfit crate (DSR/PBO/purged CV), dl-app recon CLI, 280 tests (+27), anchors.v0.jsonl sourced from jito-labs/mev-bot constants + Helius MEV Report.
+Last activity: 2026-06-18 — Applied Phase 6 / plan 02 (onchain reconciliation)
 
 Progress:
-- Milestone: [██████▒░░░] ~78% (5.5 of 7 phases complete; Phase 6 plan 01 applied)
-- Phase 6: [██░░░░░░░░] 1/2 planned, 1/2 applied (06-02 blocked on research doc)
+- Milestone: [████████░░] ~85% (6 of 7 phases complete; Phase 6 in progress, live pull is an open gate)
+- Phase 6: [██████████] 2/2 planned, 2/2 applied (live Jito pull deferred — host can reach raw.githubusercontent but not explorer.jito.wtf)
 
 ## Loop Position
 

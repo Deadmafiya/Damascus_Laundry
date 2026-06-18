@@ -183,7 +183,7 @@ macro anchors (avg winner $, failure rate, tip-as-%-of-MEV); Deflated-Sharpe exa
 
 **Plans:**
 - [x] 06-01: Golden-file replay + DST fault injection + invariants
-- [ ] 06-02: On-chain reconciliation, calibration to macro anchors, overfitting metrics
+- [x] 06-02: On-chain reconciliation, calibration to macro anchors, overfitting metrics
 
 ### Phase 7: Observability & Hardening
 

@@ -9,6 +9,7 @@ members = [
     "crates/dl-ledger",
     "crates/dl-app",
     "crates/dl-recon",
+    "crates/dl-recon-overfit",
 ]
 
 [workspace.package]
@@ -23,6 +24,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 proptest = "1"
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 bincode = "1"
 thiserror = "1"
 
@@ -33,6 +35,8 @@ dl-state = { path = "crates/dl-state" }
 dl-detect = { path = "crates/dl-detect" }
 dl-sim = { path = "crates/dl-sim" }
 dl-ledger = { path = "crates/dl-ledger" }
+dl-recon = { path = "crates/dl-recon" }
+dl-recon-overfit = { path = "crates/dl-recon-overfit" }
 
 [profile.release]
 lto = "thin"

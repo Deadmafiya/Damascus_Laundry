@@ -1,0 +1,12 @@
+[package]
+name = "dl-recon-overfit"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "Phase 6 / plan 02 overfitting-defense metrics. The ONLY f64 module in the workspace; isolated in its own crate so the dl-recon float-free CI guard is not weakened."
+
+[dependencies]
+libm = "0.2"
+
+[dev-dependencies]
+dl-recon.workspace = true

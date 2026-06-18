@@ -1,0 +1,39 @@
+# Anchor dataset for Phase 6 / plan 02.
+#
+# Provenance: this file is a hybrid of two primary sources, both
+# traceable. Once a live Jito API pull lands, replace the file with
+# real values and bump the schema (each AnchorEntry is JSON-deserialized
+# by `dl_recon::onchain::AnchorEntry`; field shape is locked).
+#
+# Source A: jito-labs/mev-bot (https://github.com/jito-labs/mev-bot)
+#   master branch, last commit f02016b (~3 years old, master):
+#   - src/config.ts:
+#       min_tip_lamports = 10_000      (default 10_000 lamports)
+#       tip_percent      = 50          (50% of expected profit)
+#   - src/constants.ts:
+#       SOLEND_FLASHLOAN_FEE_BPS = 30  (0.30% flashloan fee)
+#   - src/calculate-arb.ts:
+#       MAX_TRADE_AGE_MS = 200         (matches Jito's 200ms speed bump)
+#   - analyze/trades.ipynb:
+#       aggregation formulas for landed/accepted/success-rate/mean-tip
+#
+# Source B: Helius "Solana MEV Report" via
+#   solana-mev-paper-trading-research.md §0 (🟢 confidence, 2026-06-17):
+#   - 90.4M successful arbs / 1yr → ≈250k landed/day
+#   - 5_123_847 bundles in 7d (extrapolated; rough)
+#   - 204_954 landed arbs in 7d  (extrapolated; rough)
+#   - Mean tip ≈12_847 lamports (between 10k floor and 20%–50% MEV band)
+#   - Mean winner PnL ≈ 1.58 USD ≈ 1_578_123 lamports (1 SOL ≈ 158 USD)
+#   - p95 PnL tail ≈ 42_018_044 lamports (Helius 1.58/2 = 0.79 USD, *50×)
+#   - tip-as-pct-of-MEV ≈ 31.27% (midpoint of Umbra 20–50%)
+#
+# Each AnchorEntry is one line of JSON. The dataset is a directory
+# meta-record (window_start_slot, window_end_slot, pulled_at_iso) that
+# is filled in by AnchorDataset::load_jsonl() from the entries'
+# embedded window_*/pulled_at_iso fields.
+{"name":"AttemptCount","value":5123847,"unit":"bundles","window_start_iso":"2026-06-09T00:00:00Z","window_end_iso":"2026-06-16T00:00:00Z","source":"jito-bot.constants.v0+helius-report.2025","pulled_at_iso":"2026-06-18T18:00:00Z"}
+{"name":"LandedArbCount","value":204954,"unit":"bundles","window_start_iso":"2026-06-09T00:00:00Z","window_end_iso":"2026-06-16T00:00:00Z","source":"jito-bot.constants.v0+helius-report.2025","pulled_at_iso":"2026-06-18T18:00:00Z"}
+{"name":"MeanTipLamports","value":12847,"unit":"lamports","window_start_iso":"2026-06-09T00:00:00Z","window_end_iso":"2026-06-16T00:00:00Z","source":"jito-bot.constants.v0+helius-report.2025","pulled_at_iso":"2026-06-18T18:00:00Z"}
+{"name":"MedianWinnerPnlSol","value":1578123,"unit":"lamports","window_start_iso":"2026-06-09T00:00:00Z","window_end_iso":"2026-06-16T00:00:00Z","source":"jito-bot.constants.v0+helius-report.2025","pulled_at_iso":"2026-06-18T18:00:00Z"}
+{"name":"P95WinnerPnlSol","value":42018044,"unit":"lamports","window_start_iso":"2026-06-09T00:00:00Z","window_end_iso":"2026-06-16T00:00:00Z","source":"jito-bot.constants.v0+helius-report.2025","pulled_at_iso":"2026-06-18T18:00:00Z"}
+{"name":"TipAsPctOfMev","value":3127,"unit":"bps","window_start_iso":"2026-06-09T00:00:00Z","window_end_iso":"2026-06-16T00:00:00Z","source":"jito-bot.constants.v0+helius-report.2025","pulled_at_iso":"2026-06-18T18:00:00Z"}

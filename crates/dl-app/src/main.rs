@@ -25,15 +25,11 @@ use dl_feed::capturing::CapturingFeed;
 use dl_feed::ws_feed::WsFeed;
 use dl_state::decoder::decode_amm_info;
 use tracing::info;
-use tracing_subscriber::EnvFilter;
+
+use dl_app::recon;
 
 fn init_tracing() {
-    // Structured logging, configurable via `RUST_LOG` (default `info`).
-    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
-    tracing_subscriber::fmt()
-        .with_env_filter(filter)
-        .with_target(true)
-        .init();
+    dl_app::init_tracing();
 }
 
 fn main() {
@@ -45,10 +41,14 @@ fn main() {
         "damascus_laundry starting (no keys, no live submission)"
     );
 
-    // Mode dispatch: dry-run > live capture > placeholder.
+    // Mode dispatch: dry-run > live capture > recon > placeholder.
     if env::var("DL_DRY_RUN").ok().as_deref() == Some("1") {
         run_dry_run();
         return;
+    }
+
+    if env::args().nth(1).as_deref() == Some("recon") {
+        recon::dispatch();
     }
 
     match (env::var("DL_CAPTURE_PATH"), env::var("DL_RPC_URL")) {
