@@ -1,5 +1,11 @@
 # damascus_laundry
 
+> **v1.0.0** — see [docs/v1.0.md](docs/v1.0.md) for the release notes and
+> [CHANGELOG.md](CHANGELOG.md) for what changed. Three-DEX routing
+> (Raydium + Orca + Meteora), Prometheus metrics, reproducible paper
+> PnL reports, and a clean v3 paper ledger. **Paper trading only**;
+> no private keys in the value path.
+
 A Solana MEV **paper-trading** engine. `damascus_laundry_v1.0` ingests real-time Solana
 market state, detects **atomic DEX-DEX arbitrage** opportunities, and *simulates* whether
 each opportunity would have been profitable — **without ever submitting a real
