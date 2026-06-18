@@ -240,7 +240,13 @@ mod tests {
     fn decode_rejects_short_blob() {
         let bytes = vec![0u8; 100];
         let err = decode_lb_pair(&bytes).unwrap_err();
-        assert_eq!(err, DecodeError::TooShort { got: 100, want: 2236 });
+        assert_eq!(
+            err,
+            DecodeError::TooShort {
+                got: 100,
+                want: 2236
+            }
+        );
     }
 
     #[test]

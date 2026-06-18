@@ -83,13 +83,7 @@ impl crate::metrics::MetricsSink for MetricsPrometheus {
     fn gauge_published(&self, _name: &'static str, _value: u64) {
         // No-op.
     }
-    fn histogram_observed(
-        &self,
-        _name: &'static str,
-        _sum: u64,
-        _count: u64,
-        _buckets: &[u64],
-    ) {
+    fn histogram_observed(&self, _name: &'static str, _sum: u64, _count: u64, _buckets: &[u64]) {
         // No-op.
     }
     fn flush(&self) {

@@ -28,8 +28,7 @@ use std::path::Path;
 
 use dl_sim::cost::CostModel;
 use dl_sim::ev::{
-    CompetitionParams, EvalParams, FailedCostModel, LandingParams, LatencyBudget, Prob,
-    SubmitPath,
+    CompetitionParams, EvalParams, FailedCostModel, LandingParams, LatencyBudget, Prob, SubmitPath,
 };
 use serde::{Deserialize, Serialize};
 
@@ -304,8 +303,7 @@ impl EngineConfig {
             self.eval.p_land_grace_ms = parse_u32("DL_P_LAND_GRACE_MS", &v)?;
         }
         if let Ok(v) = env::var("DL_P_LAND_DECAY_PPM_PER_MS") {
-            self.eval.p_land_decay_ppm_per_ms =
-                parse_u32("DL_P_LAND_DECAY_PPM_PER_MS", &v)?;
+            self.eval.p_land_decay_ppm_per_ms = parse_u32("DL_P_LAND_DECAY_PPM_PER_MS", &v)?;
         }
         if let Ok(v) = env::var("DL_FAILED_ATTEMPTS_PER_WIN") {
             self.eval.failed_attempts_per_win = parse_u32("DL_FAILED_ATTEMPTS_PER_WIN", &v)?;

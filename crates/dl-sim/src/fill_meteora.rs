@@ -83,34 +83,12 @@ pub fn fill_meteora_single_bin(
     amount_in: u64,
     fee_bps: u16,
 ) -> Result<u64, SimError> {
-    // Derive reserves from the bin. The bin's `amount_x` and
-    // `amount_y` are the per-bin reserves. The bin's `price`
-    // is the per-bin price.
-    //
-    // For XForY, the input token is X, the output is Y.
-    // The constant-product formula needs both reserves. We
-    // treat the bin as a tiny constant-product pool:
-    // `out = in * amount_y / (amount_x + in)` after fee.
-    //
-    // For v1.0, we use the price ratio to derive an
-    // equivalent constant-product. The price
-    // `bin.price / SCALE_OFFSET = amount_y / amount_x` (in
-    // the bin's normalized units). So the single-bin fill
-    // is `out = in * (bin.price / SCALE_OFFSET) - fee`.
-    let amount_in_u128 = amount_in as u128;
-    if amount_in_u128 == 0 {
-        return Ok(0);
-    }
-    if bin.amount_x == 0 || bin.amount_y == 0 {
-        return Err(SimError::ZeroReserve);
-    }
     // The "virtual" reserve_in and reserve_out for the
     // constant-product formula. We pick the bin's actual
     // reserves scaled by SCALE_OFFSET so the
     // constant-product ratio matches the bin's price.
-    let reserve_in: u128 = (bin.amount_x as u128) * SCALE_OFFSET / (bin.price.max(1));
-    let reserve_out: u128 = bin.amount_y as u128;
-    // The direction picks which side is reserve_in / reserve_out.
+    // (The direction picks which side is reserve_in /
+    // reserve_out.)
     let (ri, ro) = match direction {
         SwapDirection::XForY => (bin.amount_x as u128, bin.amount_y as u128),
         SwapDirection::YForX => (bin.amount_y as u128, bin.amount_x as u128),
@@ -119,7 +97,7 @@ pub fn fill_meteora_single_bin(
     // ones. The ratio `ro / ri` is the price in the
     // direction; the SDK's single-bin fill is `out = in *
     // price / SCALE_OFFSET`.
-    let dy = fill_constant_product(ri, ro, fee_bps, amount_in_u128)?;
+    let dy = fill_constant_product(ri, ro, fee_bps, amount_in as u128)?;
     // The bin's amount_out_max = ro (we can't take more
     // than the bin has). Clamp to u64 range.
     if dy > u64::MAX as u128 {
@@ -164,8 +142,7 @@ mod tests {
         // After-fee input: 100 * 0.997 = 99.7.
         // Output: 99.7 * 2000 / (1000 + 99.7) ≈ 181.27 Y.
         let bin = small_bin();
-        let out = fill_meteora_single_bin(&bin, SwapDirection::XForY, 100, 30)
-            .expect("fill");
+        let out = fill_meteora_single_bin(&bin, SwapDirection::XForY, 100, 30).expect("fill");
         // Allow ±2 Y tolerance for the u128 division rounding.
         assert!(out >= 179 && out <= 183, "out = {out}");
     }
@@ -176,8 +153,7 @@ mod tests {
         // Output: ~47 X (constant-product yields 47-48
         // depending on rounding).
         let bin = small_bin();
-        let out = fill_meteora_single_bin(&bin, SwapDirection::YForX, 100, 30)
-            .expect("fill");
+        let out = fill_meteora_single_bin(&bin, SwapDirection::YForX, 100, 30).expect("fill");
         assert!(out >= 47 && out <= 52, "out = {out}");
     }
 
@@ -195,8 +171,7 @@ mod tests {
     #[test]
     fn fill_meteora_zero_in_returns_zero() {
         let bin = small_bin();
-        let out = fill_meteora_single_bin(&bin, SwapDirection::XForY, 0, 30)
-            .expect("zero in");
+        let out = fill_meteora_single_bin(&bin, SwapDirection::XForY, 0, 30).expect("zero in");
         assert_eq!(out, 0);
     }
 }

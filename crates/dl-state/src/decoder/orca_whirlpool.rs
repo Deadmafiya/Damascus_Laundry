@@ -182,7 +182,13 @@ mod tests {
     fn decode_rejects_short_blob() {
         let bytes = vec![0u8; 100];
         let err = decode_whirlpool(&bytes).unwrap_err();
-        assert_eq!(err, DecodeError::TooShort { got: 100, want: 256 });
+        assert_eq!(
+            err,
+            DecodeError::TooShort {
+                got: 100,
+                want: 256
+            }
+        );
     }
 
     #[test]

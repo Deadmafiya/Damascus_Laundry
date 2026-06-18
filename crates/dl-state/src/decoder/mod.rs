@@ -9,7 +9,7 @@ pub mod orca_whirlpool;
 pub mod raydium_amm_v4;
 
 pub use meteora_dlmm::{
-    decode_lb_pair, encode_lb_pair, LbPair, DecodeError as MeteoraDecodeError, DLMM_ACCOUNT_SIZE,
+    decode_lb_pair, encode_lb_pair, DecodeError as MeteoraDecodeError, LbPair, DLMM_ACCOUNT_SIZE,
     METEORA_DLMM_PROGRAM_ID, SCALE_OFFSET,
 };
 pub use orca_whirlpool::{

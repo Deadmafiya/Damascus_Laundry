@@ -186,10 +186,22 @@ pub struct MetricsRegistry {
 impl std::fmt::Debug for MetricsRegistry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MetricsRegistry")
-            .field("counter_count", &self.counters.lock().map(|m| m.len()).unwrap_or(0))
-            .field("gauge_count", &self.gauges.lock().map(|m| m.len()).unwrap_or(0))
-            .field("histogram_count", &self.histograms.lock().map(|m| m.len()).unwrap_or(0))
-            .field("sink_count", &self.sinks.lock().map(|m| m.len()).unwrap_or(0))
+            .field(
+                "counter_count",
+                &self.counters.lock().map(|m| m.len()).unwrap_or(0),
+            )
+            .field(
+                "gauge_count",
+                &self.gauges.lock().map(|m| m.len()).unwrap_or(0),
+            )
+            .field(
+                "histogram_count",
+                &self.histograms.lock().map(|m| m.len()).unwrap_or(0),
+            )
+            .field(
+                "sink_count",
+                &self.sinks.lock().map(|m| m.len()).unwrap_or(0),
+            )
             .finish()
     }
 }
@@ -218,10 +230,13 @@ impl MetricsRegistry {
             }
         } else {
             let c = Counter::new(name);
-            map.insert(name, Counter {
+            map.insert(
                 name,
-                inner: Arc::clone(&c.inner),
-            });
+                Counter {
+                    name,
+                    inner: Arc::clone(&c.inner),
+                },
+            );
             c
         }
     }
@@ -235,10 +250,13 @@ impl MetricsRegistry {
             }
         } else {
             let g = Gauge::new(name);
-            map.insert(name, Gauge {
+            map.insert(
                 name,
-                inner: Arc::clone(&g.inner),
-            });
+                Gauge {
+                    name,
+                    inner: Arc::clone(&g.inner),
+                },
+            );
             g
         }
     }
@@ -252,10 +270,13 @@ impl MetricsRegistry {
             }
         } else {
             let h = Histogram::new(name);
-            map.insert(name, Histogram {
+            map.insert(
                 name,
-                inner: Arc::clone(&h.inner),
-            });
+                Histogram {
+                    name,
+                    inner: Arc::clone(&h.inner),
+                },
+            );
             h
         }
     }
@@ -460,7 +481,10 @@ pub struct RegistryHistogram {
 impl RegistryHistogram {
     pub fn new(registry: Arc<MetricsRegistry>, name: &'static str) -> Self {
         let histogram = registry.histogram(name);
-        Self { histogram, registry }
+        Self {
+            histogram,
+            registry,
+        }
     }
     pub fn observe(&self, v: u64) {
         self.histogram.observe(v);
@@ -727,10 +751,7 @@ mod tests {
                 self.0.lock().unwrap().push(format!("metric.gauge.{n}={v}"));
             }
             fn histogram_observed(&self, n: &'static str, _: u64, _: u64, _: &[u64]) {
-                self.0
-                    .lock()
-                    .unwrap()
-                    .push(format!("metric.histogram.{n}"));
+                self.0.lock().unwrap().push(format!("metric.histogram.{n}"));
             }
             fn flush(&self) {}
         }

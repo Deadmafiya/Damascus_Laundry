@@ -207,8 +207,6 @@ pub fn tick_index_to_sqrt_price(tick_index: i32) -> Result<u128, SimError> {
     // `sqrt_price_to_tick_index` with a known test vector.
     // The bisection converges in ~80 iterations, each
     // O(1) u128 ops.
-    const TICK_QUANTUM: i32 = 1;
-    let target = tick_index;
     // The tick is exact, so we can bisect on tick_index
     // itself. Use the SDK's reference: tick_index ->
     // sqrt_price is `1.0001^(tick/2) * 2^64`. We don't
@@ -223,9 +221,11 @@ pub fn tick_index_to_sqrt_price(tick_index: i32) -> Result<u128, SimError> {
     //
     // This is exact to within ±1 ulp for |tick| <= 100.
     // Larger ticks use the iterative approach above.
-    let tick = target as i128;
+    let tick = tick_index as i128;
     let linear = (Q64_RESOLUTION as i128) + ((Q64_RESOLUTION as i128) * tick) / 10_000;
-    let linear = linear.max(MIN_SQRT_PRICE as i128).min(MAX_SQRT_PRICE as i128) as u128;
+    let linear = linear
+        .max(MIN_SQRT_PRICE as i128)
+        .min(MAX_SQRT_PRICE as i128) as u128;
     Ok(linear)
 }
 
@@ -301,8 +301,7 @@ mod tests {
     fn fill_orca_single_tick_q64_resolution() {
         // sqrt_price = 2^64 means price = 1.0. Single-tick
         // constant-product: input 1e6, output ≈ 1e6 - fee.
-        let out = fill_orca_single_tick(Q64_RESOLUTION, 1_000_000, 30)
-            .expect("fill");
+        let out = fill_orca_single_tick(Q64_RESOLUTION, 1_000_000, 30).expect("fill");
         // Allow ±1% tolerance for the linear approximation.
         assert!(out > 990_000 && out < 1_000_000, "out = {out}");
     }
@@ -315,8 +314,7 @@ mod tests {
         // sqrt_price and reserve_in = Q64_RESOLUTION. The
         // resulting ratio is sqrt_price / Q64_RESOLUTION = 2.
         // Each unit of input returns ~2 units of output.
-        let out = fill_orca_single_tick(Q64_RESOLUTION * 2, 1_000_000, 30)
-            .expect("fill");
+        let out = fill_orca_single_tick(Q64_RESOLUTION * 2, 1_000_000, 30).expect("fill");
         // 1.95x to 2.05x range to allow for the
         // overflow-fallback approximation.
         assert!(out > 1_950_000 && out < 2_050_000, "out = {out}");
@@ -335,10 +333,7 @@ mod tests {
         for tick in [-100i32, -50, -1, 0, 1, 50, 100] {
             let sp = tick_index_to_sqrt_price(tick).expect("tick->sp");
             let t2 = sqrt_price_to_tick_index(sp).expect("sp->tick");
-            assert!(
-                (t2 - tick).abs() <= 1,
-                "tick={tick}, sp={sp}, t2={t2}"
-            );
+            assert!((t2 - tick).abs() <= 1, "tick={tick}, sp={sp}, t2={t2}");
         }
     }
 }

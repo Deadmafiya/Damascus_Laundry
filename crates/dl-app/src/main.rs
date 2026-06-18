@@ -31,10 +31,8 @@ use dl_app::config::EngineConfig;
 use dl_app::metrics::MetricsRegistry;
 use dl_app::metrics_prom::MetricsPrometheus;
 use dl_app::recon;
-use dl_ledger::{
-    LedgerEntry, LedgerWriter, LEDGER_MAGIC, LEDGER_SCHEMA_VERSION,
-};
-use dl_recon::fixture::{SynthPoolSpec, synthesize_pools};
+use dl_ledger::{LedgerEntry, LedgerWriter, LEDGER_MAGIC, LEDGER_SCHEMA_VERSION};
+use dl_recon::fixture::{synthesize_pools, SynthPoolSpec};
 use dl_recon::pipeline::{replay_capture_to_ledger, ReplayParams};
 use dl_state::Pubkey;
 fn init_tracing() {
@@ -388,5 +386,3 @@ fn run_metrics_prom(port: u16) -> std::process::ExitCode {
     }
     std::process::ExitCode::SUCCESS
 }
-
-

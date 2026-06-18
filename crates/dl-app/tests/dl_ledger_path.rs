@@ -9,14 +9,12 @@
 use std::fs;
 use std::path::Path;
 
-use dl_ledger::{
-    LedgerEntry, LedgerReader, LedgerWriter, LEDGER_MAGIC, LEDGER_SCHEMA_VERSION,
-};
+use dl_ledger::hash::LedgerHash;
+use dl_ledger::{LedgerEntry, LedgerReader, LedgerWriter, LEDGER_MAGIC, LEDGER_SCHEMA_VERSION};
 use dl_sim::ev::{EvalOutcome, ExpectedValue, Prob};
 use dl_sim::net_profit::NetProfit;
-use dl_state::cycle::{Direction, Leg, Cycle};
+use dl_state::cycle::{Cycle, Direction, Leg};
 use dl_state::Pubkey;
-use dl_ledger::hash::LedgerHash;
 
 #[test]
 fn ledger_writer_creates_v3_file_with_correct_magic() {

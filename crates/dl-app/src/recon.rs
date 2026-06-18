@@ -77,15 +77,11 @@ pub fn run(args: &[String]) -> ReconCliResult {
         let json = match serde_json::to_string_pretty(&report) {
             Ok(j) => j,
             Err(e) => {
-                return ReconCliResult::Error(format!(
-                    "report-json serialize: {e}"
-                ));
+                return ReconCliResult::Error(format!("report-json serialize: {e}"));
             }
         };
         if let Err(e) = std::fs::write(path, &json) {
-            return ReconCliResult::Error(format!(
-                "report-json write: {e}"
-            ));
+            return ReconCliResult::Error(format!("report-json write: {e}"));
         }
         info!(path = %path, "report-json written");
     }
@@ -95,9 +91,8 @@ pub fn run(args: &[String]) -> ReconCliResult {
         // No compare step requested; the report is the deliverable.
         return ReconCliResult::Ok;
     }
-    let dataset = match AnchorDataset::load_jsonl(Path::new(
-        opts.anchors_path.as_deref().unwrap(),
-    )) {
+    let dataset = match AnchorDataset::load_jsonl(Path::new(opts.anchors_path.as_deref().unwrap()))
+    {
         Ok(d) => d,
         Err(e) => return ReconCliResult::Error(format!("anchors: {e}")),
     };

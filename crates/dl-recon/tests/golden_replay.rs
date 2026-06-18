@@ -81,9 +81,7 @@ fn golden_replay_triangle_matches() {
              If this is an intentional harness change, run the test once with\n\
              GOLDEN_HASH_V3_TRIANGLE = 0 to print the new value, then commit it.\n\
              (v2 schema golden was {}.)\n",
-            GOLDEN_HASH_V3_TRIANGLE,
-            report.report_hash,
-            GOLDEN_HASH_V2
+            GOLDEN_HASH_V3_TRIANGLE, report.report_hash, GOLDEN_HASH_V2
         );
     }
 }

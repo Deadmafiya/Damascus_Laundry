@@ -115,10 +115,10 @@ fn synth_triangle_mints_form_a_cycle() {
     // Pool 0: base USDC, quote SOL.
     assert_eq!(pools[0].base_mint.0, [0x01u8; 32]); // USDC
     assert_eq!(pools[0].quote_mint.0, [0x02u8; 32]); // SOL
-    // Pool 1: base SOL, quote USDT.
+                                                     // Pool 1: base SOL, quote USDT.
     assert_eq!(pools[1].base_mint.0, [0x02u8; 32]); // SOL
     assert_eq!(pools[1].quote_mint.0, [0x03u8; 32]); // USDT
-    // Pool 2: base USDT, quote USDC.
+                                                     // Pool 2: base USDT, quote USDC.
     assert_eq!(pools[2].base_mint.0, [0x03u8; 32]); // USDT
     assert_eq!(pools[2].quote_mint.0, [0x01u8; 32]); // USDC
 }
