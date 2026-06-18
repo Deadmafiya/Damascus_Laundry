@@ -34,7 +34,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 2 | Ingestion + Pool State (read-only) | 2 | ✅ Complete | 2026-06-18 |
 | 3 | Opportunity Detection | 1 | ✅ Complete | 2026-06-18 |
 | 4 | Profit / Cost / Sizing | 1 | ✅ Complete | 2026-06-18 |
-| 5 | Simulation Core + Paper Ledger | TBD | Not started | - |
+| 5 | Simulation Core + Paper Ledger | 2 | Planning | - |
 | 6 | Testing, Reconciliation & Calibration | TBD | Not started | - |
 | 7 | Observability & Hardening | TBD | Not started | - |
 
@@ -155,6 +155,10 @@ pessimistic-by-default simulation model, and track PnL with attribution.
 **Plans:**
 - [ ] 05-01: Simulation model (EV decomposition, latency re-check, winner's-curse haircut)
 - [ ] 05-02: Paper ledger + PnL attribution + dual-bound reporting
+
+**Decisions (planning):**
+- 05-01 models latency as a `p_land` haircut; real state-advance re-score deferred to Phase 6 (needs pool-bearing captures).
+- 05-02 ledger = append-only length-prefixed file (schema v2, mirrors Phase 2 capture); no new dependency.
 
 ### Phase 6: Testing, Reconciliation & Calibration
 

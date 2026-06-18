@@ -21,6 +21,7 @@
 
 pub mod cost;
 pub mod error;
+pub mod ev;
 pub mod fill;
 pub mod net_profit;
 pub mod simulate;

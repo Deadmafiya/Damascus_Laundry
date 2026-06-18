@@ -12,26 +12,26 @@ See: .paul/PROJECT.md (updated 2026-06-17)
 
 **Core value:** Reliable, honest profitability estimation — count profit only after
 latency, competition, landing probability, and fees are modeled pessimistically.
-**Current focus:** v1.0 Accurate Paper-Trading Engine — Phase 4 (Profit / Cost / Sizing) — Complete
+**Current focus:** v1.0 Accurate Paper-Trading Engine — Phase 5 (Simulation Core + Paper Ledger)
 
 ## Current Position
 
 Milestone: v1.0 Accurate Paper-Trading Engine (v1.0.0)
-Phase: 4 of 7 (Profit / Cost / Sizing) — Complete
-Plan: 04 (real AMM-curve fills, optimal input sizing, all costs, NetProfit boundary object) — single plan, 4 commits
-Status: Phase 4 complete, ready to plan Phase 5 (Simulation Core + Paper Ledger)
-Last activity: 2026-06-18 — Phase 4 complete; sub-agent model failed for Tasks 4+5 (timeout twice), in-session landed Tasks 4-8
+Phase: 5 of 7 (Simulation Core + Paper Ledger) — Planning
+Plan: 05-01 created (simulation core: EV decomposition + p_win/p_land + dual bounds), awaiting approval
+Status: PLAN 05-01 created, ready for APPLY
+Last activity: 2026-06-18 — Planned Phase 5 (05-01); 2 planning decisions recorded
 
 Progress:
 - Milestone: [█████░░░░░] ~57% (4 of 7 phases complete)
-- Phase 4: [██████████] 100%
+- Phase 5: [█░░░░░░░░░] planning (0/2 plans)
 
 ## Loop Position
 
 Current loop state:
 ```
 PLAN ──▶ APPLY ──▶ UNIFY
-  ✓        ✓        ✓     [Loop complete — ready for next PLAN (Phase 4)]
+  ◉        ○        ○     [Planning — 05-01]
 ```
 
 ## Performance Metrics
@@ -76,6 +76,8 @@ PLAN ──▶ APPLY ──▶ UNIFY
 | **Cost model: 4 components in u64 lamports** | Phase 4 | base_sig_fee + priority_fee + jito_tip + jito_5%_fee. `default_busy` baseline = 1,110,000 lamports (was 1,080,000 in plan; off-by-1e3 corrected in commit `f7451d6`). |
 | **Cycle type relocated to dl-state (orphan-rule workaround)** | Phase 4 | `dl-sim` consumes `Cycle`s; `dl-detect` re-exports from `dl-state::cycle` for backward compat. New `simulate_through_pools` is a free function (not `impl Cycle`), so the orphan rule doesn't bite. |
 | **In-session execution for complex algorithmic tasks** | Phase 4 (process) | Sub-agent 2-task limit confirmed; Tasks 4+5 (sizing + NetProfit) needed 3 fix-iterations — sub-agents timed out twice at 600s. In-session landed all 5 remaining tasks in one session. |
+| **05-01 latency = p_land haircut (not state-advance)** | Phase 5 | User decision. Δt → lower p_land, parameterized + tested now. Real "advance state to projected landing slot + re-score" deferred to Phase 6 (needs pool-bearing captures). |
+| **Paper ledger = append-only file (schema v2)** | Phase 5 | User decision. Length-prefixed bincode mirroring Phase 2 capture; zero new deps; deterministic; Phase 6 reads it for reconciliation. (Applies to 05-02.) |
 
 ### Deferred Issues
 
@@ -103,18 +105,18 @@ Protected elements (carried forward; reaffirm in each PLAN):
 
 ### Git State
 
-Last commit: d0c7f9e — feat(04-sim): optimal input sizing (golden-section) + NetProfit boundary object
+Last commit: 1f4dde4 — feat(04-sim): wire Cycle sim to dl-sim + int-only guard + cycle refactor
 Branch: main
 Feature branches merged: none
-Phase 4 commits: 4 (9b556c7, c023e29, f7451d6, d0c7f9e) — 2 sub-agent + 2 in-session
+Phase 4 commits: 5 (9b556c7, c023e29, f7451d6, d0c7f9e, 1f4dde4) — 2 sub-agent + 3 in-session
 
 ## Session Continuity
 
 Last session: 2026-06-18
-Stopped at: Phase 4 (Profit / Cost / Sizing) complete. Workspace builds; fmt/clippy/test green; ~110 tests pass + 1 ignored; 4 float-free CI guards (dl-feed, dl-state, dl-detect, dl-sim). `dl-sim` crate is real: fill_constant_product, simulate_cycle (multi-leg + reserve mutation), CostModel (4 components in u64), find_optimal_input (golden-section with 1/φ = 0.618, convexity pre-check, 64 iters), NetProfit boundary object. `dl-detect::cycle::simulate_through_pools` wired to `dl-sim` (free function, not method — orphan rule after the dl-state::cycle re-export). `Cycle`/`Leg`/`Direction` types relocated from `dl-detect::cycle` to `dl-state::cycle` to break the dl-detect ↔ dl-sim cyclic dep. Sub-agent model proved unreliable again (2 attempts, 0 commits on Tasks 4+5); in-session took over and landed Tasks 4-8 in one session.
-Next action: /paul:plan for Phase 5 (Simulation Core + Paper Ledger). Phase 5 needs: probability decomposition (p_detect × p_win × p_land), paper-trade gate (when to log a trade), paper ledger (SQLite or similar, schema v2), per-cycle EV computation. The Phase 4/5 boundary object `NetProfit` is the input. dl-feed (WS), dl-state (decoder + registry), dl-detect (graph + cycle detection + free-function sim), dl-sim (fill + cost + size + NetProfit) are all working code. dl-ledger is still a placeholder.
-Resume file: .paul/ROADMAP.md (Phase 5 details)
-Resume context: 60-s slot-only capture fixture at `crates/dl-feed/tests/fixtures/sample_capture.bincode`; for Phase 5 sim testing we still need a future capture with pool AmmInfo + vault AccountUpdates.
+Stopped at: Phase 5 planned — 05-01-PLAN.md created (simulation core). Phases 1-4 complete; workspace green; 131 tests pass. Two planning decisions recorded (latency=p_land haircut; ledger=append-only file).
+Next action: Review/approve 05-01-PLAN.md, then /paul:apply .paul/phases/05-simulation-core-paper-ledger/05-01-PLAN.md. After 05-01 unifies, plan 05-02 (paper ledger).
+Resume file: .paul/phases/05-simulation-core-paper-ledger/05-01-PLAN.md
+Resume context: 05-01 builds dl-sim::ev — fixed-point Prob (ppm), p_win (richness-decreasing), p_land (latency-decreasing, Jito 200ms/50ms anchored), FailedCostModel (spam vs jito asymmetry), evaluate() → dual optimistic/conservative bounds. Input is Phase-4 NetProfit. No ledger/IO (that's 05-02). dl-ledger still a placeholder until 05-02.
 
 ---
 *STATE.md — Updated after every significant action*

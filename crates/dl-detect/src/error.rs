@@ -66,9 +66,10 @@ impl From<SimError> for DetectError {
         match err {
             SimError::Math(e) => DetectError::InvalidMath(e),
             SimError::PoolNotFound(pk) => DetectError::PoolNotFound(pk),
-            SimError::ZeroReserve | SimError::FeeTooHigh(_) | SimError::CycleTooLong(_) => {
-                DetectError::SimulationMismatch(0)
-            }
+            SimError::ProbOutOfRange(_)
+            | SimError::ZeroReserve
+            | SimError::FeeTooHigh(_)
+            | SimError::CycleTooLong(_) => DetectError::SimulationMismatch(0),
         }
     }
 }

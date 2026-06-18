@@ -46,4 +46,9 @@ pub enum SimError {
     /// The bound is a defensive cap, not a correctness one.
     #[error("cycle too long: {0} legs (max supported)")]
     CycleTooLong(usize),
+
+    /// A probability was constructed outside the valid parts-per-million
+    /// range `0..=1_000_000`. Carries the offending value.
+    #[error("probability out of range: {0} ppm (must be <= 1_000_000)")]
+    ProbOutOfRange(u32),
 }
