@@ -211,6 +211,8 @@ dependencies = [
  "dl-core",
  "dl-detect",
  "dl-state",
+ "proptest",
+ "thiserror",
  "tracing",
 ]
 
