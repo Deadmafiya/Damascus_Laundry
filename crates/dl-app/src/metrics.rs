@@ -109,7 +109,7 @@ struct HistogramInner {
     buckets: [u64; MAX_BUCKETS],
 }
 
-const MAX_BUCKETS: usize = 12;
+pub const MAX_BUCKETS: usize = 12;
 
 impl Histogram {
     pub fn new(name: &'static str) -> Self {
@@ -288,6 +288,55 @@ impl MetricsRegistry {
             sink.flush();
         }
     }
+
+    /// Take a snapshot of all current metric values. Used by
+    /// the Prometheus adapter (`dl-app metrics prom`) to
+    /// render `/metrics` on demand without going through the
+    /// per-update dispatch path.
+    ///
+    /// Returns `(name, value)` pairs in registry-insertion
+    /// order. Snapshot is consistent within a single call.
+    pub fn snapshot(&self) -> MetricsSnapshot {
+        let counters = self
+            .counters
+            .lock()
+            .expect("counters mutex")
+            .iter()
+            .map(|(k, v)| (*k, v.get()))
+            .collect();
+        let gauges = self
+            .gauges
+            .lock()
+            .expect("gauges mutex")
+            .iter()
+            .map(|(k, v)| (*k, v.get()))
+            .collect();
+        let histograms = self
+            .histograms
+            .lock()
+            .expect("histograms mutex")
+            .iter()
+            .map(|(k, v)| (*k, v.buckets()))
+            .collect();
+        MetricsSnapshot {
+            counters,
+            gauges,
+            histograms,
+        }
+    }
+}
+
+/// A point-in-time snapshot of all metrics in the registry.
+/// Integer-only — counters, gauges, and histograms are
+/// `u64`. The `histograms` field carries the `Histogram::value`
+/// reading (current observation count per bin), which is
+/// what the Prometheus adapter renders.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MetricsSnapshot {
+    pub counters: Vec<(&'static str, u64)>,
+    pub gauges: Vec<(&'static str, u64)>,
+    /// `(&'static str, [u64; MAX_BUCKETS])`: name + the bucket counts.
+    pub histograms: Vec<(&'static str, [u64; crate::metrics::MAX_BUCKETS])>,
 }
 
 impl Default for MetricsRegistry {

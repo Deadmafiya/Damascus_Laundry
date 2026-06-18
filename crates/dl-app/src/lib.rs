@@ -8,6 +8,7 @@ use tracing_subscriber::EnvFilter;
 pub mod config;
 pub mod dry_run;
 pub mod metrics;
+pub mod metrics_prom;
 pub mod recon;
 
 /// Initialize structured logging once. Idempotent — calls after the

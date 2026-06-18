@@ -24,16 +24,19 @@ use dl_core::{Feed, FeedEvent};
 use dl_feed::capturing::CapturingFeed;
 use dl_feed::ws_feed::WsFeed;
 use dl_state::decoder::decode_amm_info;
+use std::sync::Arc;
 use tracing::info;
 
 use dl_app::config::EngineConfig;
+use dl_app::metrics::MetricsRegistry;
+use dl_app::metrics_prom::MetricsPrometheus;
 use dl_app::recon;
 use dl_ledger::{
     LedgerEntry, LedgerWriter, LEDGER_MAGIC, LEDGER_SCHEMA_VERSION,
 };
+use dl_recon::fixture::{SynthPoolSpec, synthesize_pools};
 use dl_recon::pipeline::{replay_capture_to_ledger, ReplayParams};
 use dl_state::Pubkey;
-
 fn init_tracing() {
     dl_app::init_tracing();
 }
@@ -71,18 +74,49 @@ fn main() {
         match sub.as_deref() {
             Some("print") => match EngineConfig::load(&config_path_from_env()) {
                 Ok(cfg) => {
-                    println!("{}", toml::to_string(&cfg).expect("serialize"));
+                    if let Ok(s) = toml::to_string_pretty(&cfg) {
+                        println!("{s}");
+                    }
                 }
-                Err(e) => {
-                    eprintln!("config error: {e}");
-                    std::process::exit(2);
-                }
+                Err(e) => eprintln!("config load error: {e}"),
             },
             _ => {
-                eprintln!("dl-app config — print the active EngineConfig");
-                eprintln!();
                 eprintln!("USAGE:");
                 eprintln!("    dl-app config print");
+            }
+        }
+        return;
+    }
+
+    if env::args().nth(1).as_deref() == Some("metrics") {
+        let sub = env::args().nth(2);
+        match sub.as_deref() {
+            Some("prom") => {
+                // Allow --port N override.
+                let mut port: u16 = 9090;
+                let args: Vec<String> = env::args().skip(3).collect();
+                let mut i = 0;
+                while i < args.len() {
+                    if args[i] == "--port" {
+                        if let Some(p) = args.get(i + 1) {
+                            if let Ok(n) = p.parse() {
+                                port = n;
+                            }
+                        }
+                        i += 2;
+                    } else {
+                        i += 1;
+                    }
+                }
+                let code = run_metrics_prom(port);
+                if code != std::process::ExitCode::SUCCESS {
+                    std::process::exit(2);
+                }
+                return;
+            }
+            _ => {
+                eprintln!("USAGE:");
+                eprintln!("    dl-app metrics prom [--port N]");
             }
         }
         return;
@@ -278,6 +312,81 @@ fn run_dry_run() {
         from = %path,
         "dry-run replay complete"
     );
+}
+
+/// `dl-app metrics prom [--port N]`: start a Prometheus scrape
+/// endpoint on the given port (default 9090). Serves `/metrics`
+/// from a `MetricsPrometheus` sink bound to a `MetricsRegistry`.
+///
+/// AC-5: the engine's metrics stream live to a Prometheus
+/// endpoint. The HTTP server is a single-threaded TCP
+/// listener on `127.0.0.1` — production deployments would
+/// front this with nginx or similar, but for v1.0 a minimal
+/// `std::net::TcpListener` is sufficient.
+fn run_metrics_prom(port: u16) -> std::process::ExitCode {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+
+    let registry = Arc::new(MetricsRegistry::new());
+    let prom = Arc::new(MetricsPrometheus::new(registry.clone()));
+    registry.add_sink(prom.clone());
+
+    // Pre-populate a few demo metrics so the smoke test has
+    // something to scrape. Real engine integration is v1.0+
+    // when the lower crates (dl-feed, dl-detect, dl-sim,
+    // dl-recon) thread the registry through their APIs.
+    {
+        use dl_app::metrics::{RegistryCounter, RegistryGauge};
+        let c = RegistryCounter::new(registry.clone(), "opps_per_sec");
+        c.inc();
+        c.add(2);
+        let g = RegistryGauge::new(registry.clone(), "active_pools");
+        g.set(42);
+        let t = RegistryGauge::new(registry.clone(), "would_trade");
+        t.set(0);
+        let tip = RegistryGauge::new(registry.clone(), "total_tip_lamports");
+        tip.set(0);
+    }
+
+    let bind = format!("127.0.0.1:{port}");
+    let listener = match TcpListener::bind(&bind) {
+        Ok(l) => l,
+        Err(e) => {
+            eprintln!("metrics prom: failed to bind {bind}: {e}");
+            return std::process::ExitCode::from(2);
+        }
+    };
+    info!(
+        port,
+        body = "engine metrics stream live to /metrics",
+        "metrics prom: listening"
+    );
+    println!("metrics prom: serving Prometheus metrics at http://{bind}/metrics");
+    println!("(Ctrl-C to stop)");
+
+    for stream in listener.incoming() {
+        let mut stream = match stream {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("metrics prom: accept failed: {e}");
+                continue;
+            }
+        };
+        // Read the request (we only need the first line; ignore
+        // headers and body).
+        let mut buf = [0u8; 1024];
+        let _ = stream.read(&mut buf);
+        let body = prom.render();
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\n\r\n{}",
+            dl_app::metrics_prom::CONTENT_TYPE,
+            body.len(),
+            body
+        );
+        let _ = stream.write_all(response.as_bytes());
+        let _ = stream.flush();
+    }
+    std::process::ExitCode::SUCCESS
 }
 
 
