@@ -18,7 +18,7 @@ v1.0 ships when the engine reproduces the macro reality of Solana arbitrage (not
 **Current Milestone**
 - **v1.0 Accurate Paper-Trading Engine** (v1.0.0)
 - Status: In progress
-- Phases: 5 of 7 complete (5th in progress)
+- Phases: 5 of 7 complete
 
 ## Phases
 
@@ -34,7 +34,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 | 2 | Ingestion + Pool State (read-only) | 2 | ✅ Complete | 2026-06-18 |
 | 3 | Opportunity Detection | 1 | ✅ Complete | 2026-06-18 |
 | 4 | Profit / Cost / Sizing | 1 | ✅ Complete | 2026-06-18 |
-| 5 | Simulation Core + Paper Ledger | 2 | Applying (1/2) | - |
+| 5 | Simulation Core + Paper Ledger | 2 | Complete (2/2) | - |
 | 6 | Testing, Reconciliation & Calibration | TBD | Not started | - |
 | 7 | Observability & Hardening | TBD | Not started | - |
 
@@ -154,7 +154,7 @@ pessimistic-by-default simulation model, and track PnL with attribution.
 
 **Plans:**
 - [x] 05-01: Simulation model (EV decomposition, latency re-check, winner's-curse haircut) — ✅ 2026-06-18
-- [ ] 05-02: Paper ledger + PnL attribution + dual-bound reporting
+- [x] 05-02: Paper ledger (DLD-LDG1 format, FNV-1a 64 cycle hash, append-only bincode frames, decision gate) — ✅ 2026-06-18
 
 **Decisions (planning):**
 - 05-01 models latency as a `p_land` haircut; real state-advance re-score deferred to Phase 6 (needs pool-bearing captures).
@@ -204,4 +204,4 @@ config-driven params, multi-pool/multi-DEX scale-up. (Ships v1.0.)
 
 ---
 *Roadmap created: 2026-06-17*
-*Last updated: 2026-06-18 (Phase 5 plan 01 applied — EV decomposition + dual bounds in dl-sim::ev; 170 tests pass; in-session execution; ready for 05-02 paper ledger)*
+*Last updated: 2026-06-18 (Phase 5 COMPLETE — 05-01 EV core + 05-02 paper ledger; new dl-ledger crate (DLD-LDG1 schema v2, 7 src files, 3 test files, 41 new tests); 211 tests pass; 5 float-free guards; dl-app wiring deferred to phase 6/7)*

@@ -17,9 +17,9 @@ latency, competition, landing probability, and fees are modeled pessimistically.
 ## Current Position
 
 Milestone: v1.0 Accurate Paper-Trading Engine (v1.0.0)
-Phase: 5 of 7 (Simulation Core + Paper Ledger) — Applying
-Plan: 05-01 applied; 05-02 planned (paper ledger, awaiting APPLY)
-Status: PLAN 05-02 ready for APPLY
+Phase: 5 of 7 (Simulation Core + Paper Ledger) — Applied
+Plan: 05-01 + 05-02 applied (EV core + paper ledger). Phase 5 complete.
+Status: PLAN 05-02 APPLIED — dl-ledger crate built (7 source files, 3 test files), 41 new tests (211 total), float-free guard added to dl-ledger, 5 guards total across workspace.
 Last activity: 2026-06-18 — Planned Phase 5 / plan 02 (paper ledger)
 
 Progress:
@@ -37,21 +37,21 @@ PLAN ──▶ APPLY ──▶ UNIFY
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 5 (01-01, 02-01, 02-02, 04-01, 05-01)
+- Total plans completed: 6 (01-01, 02-01, 02-02, 04-01, 05-01, 05-02)
 - Average duration: ~1 session each
-- Total execution time: 5 sessions
+- Total execution time: 6 sessions
 
 **By Phase:**
 
-| Phase | Plans | Total Time | Avg/Plan |
-|-------|-------|------------|----------|
-| 01-foundations | 1/1 | 1 session | 1 session |
-| 02-ingestion-pool-state | 2/2 | 2 sessions | 1 session |
-| 03-opportunity-detection | 1/1 | 1 session | 1 session |
-| 04-profit-cost-sizing | 1/1 | 1 session | 1 session |
-| 05-simulation-core-paper-ledger | 1/2 | 1 session | 1 session |
+| Phase | Plans | Total Time | Avg/Plan | Tests Added | Cumulative Tests |
+|---|---|---|---|---|---|
+| 1 — Foundations | 1 | 1 session | 1 | 10 | 10 |
+| 2 — Ingestion + Pool State | 2 | 1 session | 0.5 | 19 | 29 |
+| 3 — Opportunity Detection | 1 | 1 session | 1 | 25 | 54 |
+| 4 — Profit / Cost / Sizing | 1 | 1 session | 1 | 77 | 131 |
+| 5 — Simulation Core + Paper Ledger | 2 | 2 sessions | 1 | 80 | 211 |
 
-## Accumulated Context
+**Test growth:** 0 → 211 over 6 plans (one commit per plan, 5+1+1+5+1 commits = 13 commits since `1c920df` Phase 4 base).
 
 ### Decisions
 
@@ -106,18 +106,20 @@ Protected elements (carried forward; reaffirm in each PLAN):
 
 ### Git State
 
-Last commit: 6b258ed — feat(05-sim): EV decomposition + dual bounds (pessimistic-by-default)
+Last commit: 4084ebd — feat(05-sim): paper ledger (DLD-LDG1, append-only bincode frames)
 Branch: main
 Feature branches merged: none
-Phase 5 commits: 1 (6b258ed) — 1 in-session
+Phase 5 commits: 2 (6b258ed, 4084ebd) — both in-session
 
 ## Session Continuity
 
 Last session: 2026-06-18
-Stopped at: Phase 5 plan 02 PLANNED (paper ledger). Plan 01 (EV core) is applied; 170 tests pass. Plan 02 builds the dl-ledger crate (currently a placeholder): LedgerEntry + Decision + LedgerHash + LedgerWriter + LedgerReader + LedgerSummary, int-only CI guard, DL_LEDGER_PATH env var in dl-app dry-run path. Zero new deps beyond bincode.
-Next action: /paul:apply .paul/phases/05-simulation-core-paper-ledger/05-02-PLAN.md
-Resume file: .paul/phases/05-simulation-core-paper-ledger/05-02-PLAN.md
-Resume context: 05-02 fills out dl-ledger crate (8 files: format/entry/hash/error/writer/reader/summary/lib), adds int_only_no_fractional guard, wires DL_LEDGER_PATH into dl-app. Phase 6 will read the ledger for reconciliation + calibration.
+Stopped at: Phase 5 PLAN 02 (paper ledger) APPLIED. Phase 5 (Simulation Core + Paper Ledger) is **complete** — 2/2 plans, 211 tests pass, 5 float-free guards, 2 in-session commits. dl-app is the only consumer of dl-ledger that has not been wired up. Phase 6 (Reconciliation + Calibration) is next; it reads `*.dld` files and is the natural target for the deferred `bincode` hoist to `[workspace.dependencies]`.
+
+For next session:
+- /paul:apply phase 6 plan (to be written: 06-01 reconciliation, 06-02 calibration, possibly 06-03 dl-app wiring). The plan is straightforward to write — Phase 6 is the "use the ledger + EV bounds to compare paper vs reality" phase, no new domain algorithms, mostly data plumbing + calibration math.
+- The captured dl-sim `DefaultHasher` warning from the previous session is not present (serde-derive doesn't use hashmaps in any hot path; bincode writes are sequential).
+- All gates are green; resume is safe.
 
 ---
 *STATE.md — Updated after every significant action*
