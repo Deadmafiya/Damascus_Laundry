@@ -48,6 +48,7 @@
 use std::collections::BTreeMap;
 
 use dl_core::fixed::mul_div_floor;
+use dl_state::pool::AmmKind;
 use dl_state::Pool;
 
 use crate::error::DetectError;
@@ -83,6 +84,13 @@ pub struct Edge {
     /// the BF cycle-recovery step populate `Leg::direction` without a
     /// `PoolRegistry` lookup.
     pub is_base_to_quote: bool,
+    /// Which AMM family this edge came from (Phase 7 / plan 02).
+    /// Lets the cycle-recovery step route the cycle to the
+    /// correct fill-math path: Raydium constant-product,
+    /// Orca Whirlpool single-tick, Meteora DLMM per-bin.
+    /// Defaults to `RaydiumAmmV4` for backward compatibility
+    /// with v1.0 cycle consumers.
+    pub dex_id: AmmKind,
 }
 
 /// The price graph itself. `n` is the number of distinct mints; the
@@ -219,6 +227,7 @@ pub fn build_from_pools(pools: &[Pool]) -> Result<Graph, DetectError> {
             weight: weight_from_rate(rate_b2q),
             pool: pool.address,
             is_base_to_quote: true,
+            dex_id: pool.kind,
         });
         g.push_edge(Edge {
             from: quote_id,
@@ -226,6 +235,7 @@ pub fn build_from_pools(pools: &[Pool]) -> Result<Graph, DetectError> {
             weight: weight_from_rate(rate_q2b),
             pool: pool.address,
             is_base_to_quote: false,
+            dex_id: pool.kind,
         });
     }
     Ok(g)
@@ -425,5 +435,87 @@ mod tests {
         for e in &g.edges {
             assert_eq!(e.weight, ONE_1E18 as i64);
         }
+    }
+
+    /// AC-4: a triangle involving one Raydium, one Orca, and one
+    /// Meteora pool around a common token triplet is built into
+    /// a graph whose edges carry the per-DEX `dex_id` field. The
+    /// detection step (Bellman-Ford) is exercised separately;
+    /// this test pins the per-DEX edge labeling.
+    ///
+    /// Triangle: USDC (mint 1) -> SOL (mint 2) -> USDT (mint 3)
+    /// -> USDC (mint 1), one pool per DEX.
+    #[test]
+    fn multi_dex_triangle_dex_id_labeling() {
+        let usdc: u8 = 1;
+        let sol: u8 = 2;
+        let usdt: u8 = 3;
+        // Raydium: USDC/SOL. 100 USDC = 1 SOL (price = 100).
+        let raydium = Pool {
+            address: Pubkey([0xA1; 32]),
+            kind: AmmKind::RaydiumAmmV4,
+            base_mint: Pubkey([usdc; 32]),
+            quote_mint: Pubkey([sol; 32]),
+            base_decimals: 6,
+            quote_decimals: 9,
+            base_reserve: 100_000_000,    // 100 USDC
+            quote_reserve: 1_000_000_000, // 1 SOL
+            fee_bps: 30,
+            last_update_slot: 0,
+        };
+        // Orca Whirlpool: SOL/USDT. Price-edge of 5% on top
+        // of the Raydium 100x for a profitable round-trip.
+        // We model this as: 1 SOL = 105 USDT (constant-product
+        // approximation; the real Orca fill uses Q64.64).
+        let orca = Pool {
+            address: Pubkey([0xA2; 32]),
+            kind: AmmKind::OrcaWhirlpool,
+            base_mint: Pubkey([sol; 32]),
+            quote_mint: Pubkey([usdt; 32]),
+            base_decimals: 9,
+            quote_decimals: 6,
+            base_reserve: 1_000_000_000, // 1 SOL
+            quote_reserve: 105_000_000,  // 105 USDT
+            fee_bps: 30,
+            last_update_slot: 0,
+        };
+        // Meteora DLMM: USDT/USDC. 1.001 USDC = 1 USDT.
+        let meteora = Pool {
+            address: Pubkey([0xA3; 32]),
+            kind: AmmKind::MeteoraDlmm,
+            base_mint: Pubkey([usdt; 32]),
+            quote_mint: Pubkey([usdc; 32]),
+            base_decimals: 6,
+            quote_decimals: 6,
+            base_reserve: 1_001_000_000_000, // 1.001M USDT
+            quote_reserve: 1_000_000_000,    // 1M USDC
+            fee_bps: 30,
+            last_update_slot: 0,
+        };
+
+        let g = build_from_pools(&[raydium, orca, meteora]).expect("graph");
+        // Each edge must carry the dex_id matching its pool.
+        let mut seen_per_dex = Vec::new();
+        for e in &g.edges {
+            let expected = match e.pool.0[0] {
+                0xA1 => AmmKind::RaydiumAmmV4,
+                0xA2 => AmmKind::OrcaWhirlpool,
+                0xA3 => AmmKind::MeteoraDlmm,
+                other => panic!("unexpected pool byte {other}"),
+            };
+            assert_eq!(
+                e.dex_id, expected,
+                "dex_id mismatch for pool {:?}",
+                e.pool.0[0]
+            );
+            if !seen_per_dex.contains(&e.dex_id) {
+                seen_per_dex.push(e.dex_id);
+            }
+        }
+        // All three DEXs represented.
+        assert_eq!(seen_per_dex.len(), 3);
+        assert!(seen_per_dex.contains(&AmmKind::RaydiumAmmV4));
+        assert!(seen_per_dex.contains(&AmmKind::OrcaWhirlpool));
+        assert!(seen_per_dex.contains(&AmmKind::MeteoraDlmm));
     }
 }
