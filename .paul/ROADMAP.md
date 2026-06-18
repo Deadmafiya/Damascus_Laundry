@@ -184,23 +184,36 @@ macro anchors (avg winner $, failure rate, tip-as-%-of-MEV); Deflated-Sharpe exa
 **Plans:**
 - [x] 06-01: Golden-file replay + DST fault injection + invariants
 - [x] 06-02: On-chain reconciliation, calibration to macro anchors, overfitting metrics
-
-### Phase 7: Observability & Hardening
+- [ ] 07-01: Metrics/observability + config-driven params
+- [ ] 07-02: Multi-pool scale-up + v1.0 release docs
 
 **Goal:** Make the engine operable and trustworthy over long runs — dashboards,
 config-driven params, multi-pool/multi-DEX scale-up. (Ships v1.0.)
 **Depends on:** Phase 6 (validated, calibrated engine)
-**Research:** Unlikely (internal patterns)
+**Research:** Likely — multi-DEX math needs verification against Orca/Meteora SDKs
 
 **Scope:**
 - Metrics dashboards: opps/sec, detection latency, hit rate, drift, paper PnL
 - Config-driven strategy params (no recompile to retune)
-- Scale to multiple pools / multiple DEXs
+- Scale to multiple pools / multiple DEXs (Orca Whirlpool + Meteora DLMM)
 - v1.0 release: documentation + reproducible run over a captured window
 
 **Plans:**
-- [ ] 07-01: Metrics/observability + config-driven params
-- [ ] 07-02: Multi-pool scale-up + v1.0 release docs
+- [x] **07-01 PLANNED** (`.paul/phases/07-observability-and-hardening/07-01-PLAN.md`):
+  Metrics/observability (`MetricsSink` trait, `tracing` adapter) +
+  config-driven params (`EngineConfig` TOML loader) +
+  closes `DL_LEDGER_PATH` deferral from 05-02 +
+  per-cycle tip in ledger (closes 3 of 6 placeholder
+  `engine_aggregate()` mappings) +
+  `LedgerSummary` gains `median` / `p95`.
+- [x] **07-02 PLANNED** (`.paul/phases/07-observability-and-hardening/07-02-PLAN.md`):
+  Orca Whirlpool + Meteora DLMM decoders +
+  Prometheus / OTel metrics adapter +
+  `reproduce_paper_pnl.sh` script +
+  `docs/v1.0.md` + `CHANGELOG.md` + `v1.0.0` tag.
+  **Research gate**: `.paul/research/multi-dex-math.md` must
+  be committed before 07-02 starts; the doc covers Orca and
+  Meteora SDK source links and the Prometheus-vs-OTel choice.
 
 ---
 *Roadmap created: 2026-06-17*

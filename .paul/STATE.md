@@ -12,19 +12,19 @@ See: .paul/PROJECT.md (updated 2026-06-17)
 
 **Core value:** Reliable, honest profitability estimation — count profit only after
 latency, competition, landing probability, and fees are modeled pessimistically.
-**Current focus:** v1.0 Accurate Paper-Trading Engine — Phase 6 (Reconciliation + Calibration)
+**Current focus:** v1.0 Accurate Paper-Trading Engine — Phase 7 (Observability + Hardening)
 
 ## Current Position
 
 Milestone: v1.0 Accurate Paper-Trading Engine (v1.0.0)
-Phase: 6 of 7 (Reconciliation + Calibration) — Applied
-Plan: 06-01 + 06-02 applied. Phase 6 complete (live Jito pull is an open gate).
-Status: PLAN 06-02 APPLIED — dl-recon::onchain (anchor loader + compare + calibrate), dl-recon-overfit crate (DSR/PBO/purged CV), dl-app recon CLI, 280 tests (+27), anchors.v0.jsonl sourced from jito-labs/mev-bot constants + Helius MEV Report.
-Last activity: 2026-06-18 — Applied Phase 6 / plan 02 (onchain reconciliation)
+Phase: 7 of 7 (Observability + Hardening) — Planning
+Plan: 07-01 + 07-02 PLANNED (not yet applied). 07-01 has no research gate; 07-02 BLOCKED on `.paul/research/multi-dex-math.md`.
+Status: Phase 6 closed (live Jito pull is an open gate, documented). Phase 7 plans written; no code shipped yet.
+Last activity: 2026-06-18 — Audited Phases 1-6; planned Phase 7 (07-01 + 07-02)
 
 Progress:
-- Milestone: [████████░░] ~85% (6 of 7 phases complete; Phase 6 in progress, live pull is an open gate)
-- Phase 6: [██████████] 2/2 planned, 2/2 applied (live Jito pull deferred — host can reach raw.githubusercontent but not explorer.jito.wtf)
+- Milestone: [█████████░] ~90% (6 of 7 phases complete; Phase 7 in planning)
+- Phase 7: [██░░░░░░░░] 0/2 applied, 2/2 planned
 
 ## Loop Position
 
