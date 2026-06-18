@@ -24,7 +24,7 @@ use crate::sizing::OptimalInput;
 /// All fields are computed by [`NetProfit::from_optimal`]. The struct is
 /// self-contained — Phase 5 reads `net_profit_bps` and `profitable` without
 /// needing to re-run the sizer or re-resolve pool reserves.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct NetProfit {
     /// Input amount, in input-token base units.
     pub input_amount: u128,

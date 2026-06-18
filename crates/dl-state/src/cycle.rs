@@ -27,7 +27,7 @@ use crate::Pubkey;
 /// - the `pool` it's drawn from (drives the forward fill math), and
 /// - the `direction` (base -> quote or quote -> base; some pools have
 ///   asymmetric fee schedules per side in v1.1+, not in v1.0).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Leg {
     /// Pool this leg fills through.
     pub pool: Pubkey,
@@ -39,7 +39,7 @@ pub struct Leg {
     pub weight: i64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Direction {
     BaseToQuote,
     QuoteToBase,
@@ -52,7 +52,7 @@ pub enum Direction {
 /// (i.e. log-rate < 0 → gross profit > 1). `expected_profit_bps` is
 /// the net expected return in basis points (positive == profit),
 /// computed by [`compute_profit_bps`] from `weight_sum`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Cycle {
     pub legs: Vec<Leg>,
     /// Sum of `legs[*].weight`, 1e-18 scale. Negative == profitable.

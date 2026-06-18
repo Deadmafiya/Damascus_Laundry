@@ -11,7 +11,7 @@ use dl_core::MathError;
 
 /// 32-byte Solana public key. Newtype (not a type alias) so we can give
 /// it a `Debug`/`Hash`/`Eq` impl and use it as a `HashMap` key.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct Pubkey(pub [u8; 32]);
 
 impl Pubkey {
@@ -41,7 +41,7 @@ impl From<[u8; 32]> for Pubkey {
 }
 
 /// Which AMM produced this pool's on-chain layout. Drives decoder dispatch.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum AmmKind {
     /// Raydium AMM v4 — constant-product. The only kind we decode in v1.0.
     RaydiumAmmV4,
@@ -63,7 +63,7 @@ impl AmmKind {
 }
 
 /// Normalized pool state. Every field is integer or fixed-point-only.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Pool {
     /// The pool account's own address.
     pub address: Pubkey,

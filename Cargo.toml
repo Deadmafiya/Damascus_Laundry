@@ -21,6 +21,7 @@ repository = "https://github.com/jito-foundation/jito-solana"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 proptest = "1"
+serde = { version = "1", features = ["derive"] }
 
 # Internal crates
 dl-core = { path = "crates/dl-core" }

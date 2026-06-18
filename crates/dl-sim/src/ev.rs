@@ -60,7 +60,9 @@ pub const JITO_TICK_MS: u32 = 50;
 /// Construct from parts-per-million via [`Prob::from_ppm`] for readable call
 /// sites; combine independent probabilities with [`Prob::combine`]; haircut a
 /// signed value with [`Prob::apply_to`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub struct Prob(u128);
 
 impl Prob {
@@ -133,7 +135,7 @@ impl Prob {
 /// `decay_ppm_per_bps` (saturating at 0). This encodes adverse selection:
 /// fatter spreads attract more and faster competitors, so the *richer* an
 /// opportunity looks, the *less* likely we win it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct CompetitionParams {
     /// Base win probability (ppm) for opportunities at or below the threshold.
     pub base_win_ppm: u32,
@@ -191,7 +193,7 @@ pub fn p_win(net_profit_bps: i32, params: &CompetitionParams) -> Prob {
 /// A latency budget from detection to landing, in milliseconds. Total drives
 /// [`p_land`]. Component breakdown mirrors the research decomposition
 /// `t_detect + t_decide + t_build + t_network + t_auction`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct LatencyBudget {
     pub t_detect_ms: u32,
     pub t_decide_ms: u32,
@@ -235,7 +237,7 @@ impl LatencyBudget {
 }
 
 /// Parameters for the [`p_land`] latency-to-landing model.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct LandingParams {
     /// At or under this total latency, landing is certain (`p_land == 1.0`).
     pub grace_ms: u32,
@@ -288,7 +290,7 @@ pub fn p_land(budget: &LatencyBudget, params: &LandingParams) -> Prob {
 
 /// Which submission path the strategy uses. Determines failed-attempt cost
 /// accounting (research principle 7).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum SubmitPath {
     /// Priority-fee / "spam" path: every *included* tx (including reverts)
     /// pays the base signature fee, so failed attempts cost real lamports.
@@ -300,7 +302,7 @@ pub enum SubmitPath {
 }
 
 /// Models the expected cost of the failed attempts that accompany each win.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct FailedCostModel {
     /// Expected number of failed attempts per successful win.
     pub attempts_per_win: u32,
@@ -359,7 +361,7 @@ impl FailedCostModel {
 // ---------------------------------------------------------------------------
 
 /// One expected-value estimate (under one assumption set).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ExpectedValue {
     /// Expected PnL in input-token base units (signed). The decision metric.
     pub e_pnl: i128,
@@ -374,7 +376,7 @@ pub struct ExpectedValue {
 }
 
 /// One full assumption set for an EV evaluation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct EvalParams {
     /// Probability we detect the opportunity in time.
     pub p_detect: Prob,
@@ -417,7 +419,7 @@ impl EvalParams {
 
 /// Both bounds for one opportunity. Callers act only on `conservative`; the
 /// gap between the two is itself a risk signal.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct EvalOutcome {
     /// Optimistic ceiling (you detect, win, land at no failed cost).
     pub optimistic: ExpectedValue,

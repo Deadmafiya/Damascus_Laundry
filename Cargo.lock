@@ -201,7 +201,12 @@ dependencies = [
 name = "dl-ledger"
 version = "0.0.0"
 dependencies = [
+ "bincode",
  "dl-core",
+ "dl-sim",
+ "dl-state",
+ "proptest",
+ "serde",
  "tracing",
 ]
 
@@ -212,6 +217,7 @@ dependencies = [
  "dl-core",
  "dl-state",
  "proptest",
+ "serde",
  "thiserror",
  "tracing",
 ]
@@ -222,6 +228,7 @@ version = "0.0.0"
 dependencies = [
  "dl-core",
  "proptest",
+ "serde",
  "thiserror",
  "tracing",
 ]

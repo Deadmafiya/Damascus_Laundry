@@ -56,7 +56,7 @@ pub const PRIORITY_FEE_SCALE: u64 = 1_000_000;
 ///
 /// All fields are configurable; the v1.0 sim uses [`CostModel::default_min`]
 /// and [`CostModel::default_busy`] as canonical baselines.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct CostModel {
     /// Number of signatures in the tx. A typical 3-leg arb: 1 system
     /// transfer (tip) + 3 swap instructions + 2 compute-budget
@@ -81,7 +81,7 @@ pub struct CostModel {
 }
 
 /// Per-tx cost breakdown.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct CostBreakdown {
     /// `BASE_SIG_FEE_LAMPORTS × n_signatures`.
     pub base_sig_fee_lamports: u64,
