@@ -28,7 +28,11 @@ use tracing::info;
 
 use dl_app::config::EngineConfig;
 use dl_app::recon;
-use dl_ledger::{LedgerWriter, LEDGER_MAGIC, LEDGER_SCHEMA_VERSION};
+use dl_ledger::{
+    LedgerEntry, LedgerWriter, LEDGER_MAGIC, LEDGER_SCHEMA_VERSION,
+};
+use dl_recon::pipeline::{replay_capture_to_ledger, ReplayParams};
+use dl_state::Pubkey;
 
 fn init_tracing() {
     dl_app::init_tracing();
@@ -192,17 +196,27 @@ fn run_dry_run() {
             }
         }
         match LedgerWriter::new(std::fs::File::create(lp).expect("create ledger file")) {
-            Ok(_w) => {
+            Ok(mut w) => {
                 info!(
                     ledger_path = %lp.display(),
                     magic = %std::str::from_utf8(LEDGER_MAGIC).unwrap(),
                     schema = LEDGER_SCHEMA_VERSION,
                     "DL_LEDGER_PATH set; opened v3 ledger"
                 );
-                // The writer is dropped at the end of this scope
-                // and writes its header on drop. The full cycle
-                // pipeline is in 07-02; for now the file is
-                // header-only.
+                // AC-5 closure: run the full pipeline (synthesize →
+                // detect → simulate → ledger) and write every
+                // CycleRecord's entry to the file. The current
+                // `run_dry_run` doesn't read the live capture into
+                // pools, so we use a built-in synthetic universe
+                // (the canonical triangle from the recon fixture
+                // module) which is known to produce cycles.
+                if let Err(e) = dl_app::dry_run::write_synth_ledger(&mut w) {
+                    eprintln!("DL_LEDGER_PATH: synth pipeline failed: {e}");
+                }
+                // Flush by dropping the writer explicitly so the
+                // header is committed even if the synth pipeline
+                // didn't run.
+                drop(w);
             }
             Err(e) => {
                 eprintln!("DL_LEDGER_PATH: failed to open {}: {e}", ledger_path);
@@ -265,3 +279,5 @@ fn run_dry_run() {
         "dry-run replay complete"
     );
 }
+
+
