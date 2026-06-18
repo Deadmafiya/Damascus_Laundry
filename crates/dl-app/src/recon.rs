@@ -40,7 +40,8 @@ pub fn run(args: &[String]) -> ReconCliResult {
 
     info!(
         capture = %opts.capture_path,
-        anchors = %opts.anchors_path,
+        anchors = ?opts.anchors_path,
+        report_json = ?opts.report_json,
         calibrate = opts.calibrate,
         "starting recon"
     );
@@ -68,8 +69,35 @@ pub fn run(args: &[String]) -> ReconCliResult {
         "replay complete"
     );
 
-    // 3. Load anchors.
-    let dataset = match AnchorDataset::load_jsonl(Path::new(&opts.anchors_path)) {
+    // 2b. Optionally dump the report as JSON. The script
+    // (`scripts/reproduce_paper_pnl.sh`) uses this to capture
+    // the recon outcome without going through the anchor
+    // compare step.
+    if let Some(ref path) = opts.report_json {
+        let json = match serde_json::to_string_pretty(&report) {
+            Ok(j) => j,
+            Err(e) => {
+                return ReconCliResult::Error(format!(
+                    "report-json serialize: {e}"
+                ));
+            }
+        };
+        if let Err(e) = std::fs::write(path, &json) {
+            return ReconCliResult::Error(format!(
+                "report-json write: {e}"
+            ));
+        }
+        info!(path = %path, "report-json written");
+    }
+
+    // 3. Load anchors (optional when --report-json was given).
+    if opts.anchors_path.is_none() {
+        // No compare step requested; the report is the deliverable.
+        return ReconCliResult::Ok;
+    }
+    let dataset = match AnchorDataset::load_jsonl(Path::new(
+        opts.anchors_path.as_deref().unwrap(),
+    )) {
         Ok(d) => d,
         Err(e) => return ReconCliResult::Error(format!("anchors: {e}")),
     };
@@ -113,7 +141,8 @@ pub fn run(args: &[String]) -> ReconCliResult {
 #[derive(Debug)]
 struct ReconOpts {
     capture_path: String,
-    anchors_path: String,
+    anchors_path: Option<String>,
+    report_json: Option<String>,
     calibrate: bool,
     params: ReplayParams,
 }
@@ -121,6 +150,7 @@ struct ReconOpts {
 fn parse_args(args: &[String]) -> Result<ReconOpts, String> {
     let mut capture_path: Option<String> = None;
     let mut anchors_path: Option<String> = None;
+    let mut report_json: Option<String> = None;
     let mut calibrate = false;
 
     let mut i = 0;
@@ -134,6 +164,10 @@ fn parse_args(args: &[String]) -> Result<ReconOpts, String> {
                 i += 1;
                 anchors_path = Some(args.get(i).ok_or("--anchors: missing value")?.clone());
             }
+            "--report-json" => {
+                i += 1;
+                report_json = Some(args.get(i).ok_or("--report-json: missing value")?.clone());
+            }
             "--calibrate" => calibrate = true,
             "--help" | "-h" => {
                 print_help();
@@ -145,11 +179,19 @@ fn parse_args(args: &[String]) -> Result<ReconOpts, String> {
     }
 
     let capture_path = capture_path.ok_or("--capture <path> is required")?;
-    let anchors_path = anchors_path.ok_or("--anchors <path.jsonl> is required")?;
+    // --anchors is optional when --report-json is supplied
+    // (the recon report is written without the compare step).
+    if anchors_path.is_none() && report_json.is_none() {
+        return Err(
+            "--anchors <path.jsonl> is required (or use --report-json to skip the compare step)"
+                .to_string(),
+        );
+    }
 
     Ok(ReconOpts {
         capture_path,
         anchors_path,
+        report_json,
         calibrate,
         params: ReplayParams::default(),
     })

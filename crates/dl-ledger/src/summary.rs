@@ -11,7 +11,7 @@ use crate::error::LedgerError;
 /// Plain accessor methods (`total`, `would_trade`, ...) expose the
 /// fields. The fields are private; the struct is constructed only via
 /// [`LedgerSummary::from_entries`].
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct LedgerSummary {
     total: u64,
     would_trade: u64,

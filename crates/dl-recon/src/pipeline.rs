@@ -46,7 +46,7 @@ use crate::error::ReconError;
 /// The two [`EvalParams`] (optimistic + conservative) form the dual-bound
 /// pair that produces both a [`LedgerEntry::optimistic`] and a
 /// [`LedgerEntry::conservative`].
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct ReplayParams {
     /// Cost model used by the sizer (per-tx signature / priority / Jito).
     pub cost: CostModel,
@@ -73,7 +73,7 @@ impl Default for ReplayParams {
 }
 
 /// One cycle's full evaluation, ready to be written as a [`LedgerEntry`].
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct CycleRecord {
     /// Sequence number, starting at 0.
     pub seq: u64,
@@ -111,7 +111,7 @@ impl CycleRecord {
 /// the divergences list is always empty. The struct is here so 06-02
 /// can fill it in when comparing the harness output against a
 /// previously-recorded ledger.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct Divergence {
     /// Sequence number in the *original* ledger.
     pub seq: u64,
@@ -134,7 +134,7 @@ pub struct Divergence {
 /// structured diff against a *prior* ledger — empty in 06-01 (single
 /// source of truth) and non-empty in 06-02 (when the harness output is
 /// compared against a recorded baseline).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct ReconReport {
     /// Replay parameters that produced this report.
     pub params: ReplayParams,
