@@ -151,6 +151,10 @@ pub struct ReconReport {
     /// Total number of `FeedEvent`s consumed (capture path only).
     /// Zero in the pool-only path.
     pub feed_events_consumed: u64,
+    /// Total Jito tip across all `cycle_records` (sum of
+    /// `LedgerEntry::tip_lamports`). Zero in the pool-only path
+    /// until the simulation learns to model tips.
+    pub total_tip_lamports: u64,
 }
 
 impl ReconReport {
@@ -227,6 +231,7 @@ pub fn replay_pools_to_ledger(
                 divergences: Vec::new(),
                 report_hash: FNV_OFFSET,
                 feed_events_consumed: 0,
+                total_tip_lamports: 0,
             });
         }
         Err(e) => return Err(ReconError::Detect(e)),
@@ -243,6 +248,10 @@ pub fn replay_pools_to_ledger(
     let summary =
         LedgerSummary::from_entries(&records.iter().map(|r| r.entry.clone()).collect::<Vec<_>>())?;
     let report_hash = hash_records(&records);
+    let total_tip_lamports: u64 = records
+        .iter()
+        .map(|r| r.entry.tip_lamports)
+        .fold(0u64, u64::saturating_add);
 
     Ok(ReconReport {
         params: params.clone(),
@@ -251,6 +260,7 @@ pub fn replay_pools_to_ledger(
         divergences: Vec::new(),
         report_hash,
         feed_events_consumed: 0,
+        total_tip_lamports,
     })
 }
 

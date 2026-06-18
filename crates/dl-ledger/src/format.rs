@@ -5,7 +5,7 @@
 //! ```text
 //! +------------------------------------------------+
 //! | 8 bytes   | MAGIC      | b"DLD-LDG1"           |  file header
-//! | 4 bytes   | u32 LE     | schema_version (== 2) |  one-time, validated at open
+//! | 4 bytes   | u32 LE     | schema_version (== 3) |  one-time, validated at open
 //! +------------------------------------------------+
 //! | ... frame 0, frame 1, ...                     |
 //! +------------------------------------------------+
@@ -47,7 +47,12 @@ pub const LEDGER_MAGIC: &[u8; 8] = b"DLD-LDG1";
 
 /// Current ledger-file schema version. Bumped only on a breaking change
 /// to the file layout.
-pub const LEDGER_SCHEMA_VERSION: u32 = 2;
+///
+/// v3 (2026-06-18, Phase 7 / plan 01): adds `tip_lamports: u64` to
+/// each `LedgerEntry`. v3 readers must reject v2 files via
+/// `SchemaMismatch` (per the schema policy). Downward compat is
+/// not preserved: re-deriving tip from v2 data is impossible.
+pub const LEDGER_SCHEMA_VERSION: u32 = 3;
 
 /// Returns the spec text. The round-trip test asserts this string mentions
 /// every layout field — paranoid but cheap, and prevents the spec drifting
@@ -55,7 +60,7 @@ pub const LEDGER_SCHEMA_VERSION: u32 = 2;
 pub fn format_spec() -> &'static str {
     "Ledger file = magic(8 bytes, \"DLD-LDG1\") + schema_version(u32 LE) + frames.\n\
      Frame = payload_len(u32 LE) + bincode(LedgerEntry).\n\
-     Schema version 2."
+     Schema version 3."
 }
 
 #[cfg(test)]
@@ -87,8 +92,8 @@ mod tests {
             spec
         );
         assert!(
-            spec.contains("Schema version 2"),
-            "spec must pin schema v2: {}",
+            spec.contains("Schema version 3"),
+            "spec must pin schema v3: {}",
             spec
         );
     }
@@ -103,7 +108,7 @@ mod tests {
     }
 
     #[test]
-    fn schema_version_is_two() {
-        assert_eq!(LEDGER_SCHEMA_VERSION, 2);
+    fn schema_version_is_three() {
+        assert_eq!(LEDGER_SCHEMA_VERSION, 3);
     }
 }

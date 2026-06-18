@@ -60,6 +60,7 @@ fn build_entry(seq: u64, opt: i128, con: i128, trade: bool) -> LedgerEntry {
         } else {
             Decision::WouldNotTrade
         },
+        tip_lamports: 0,
     }
 }
 
@@ -108,8 +109,8 @@ fn format_spec_locks_key_fields() {
         spec
     );
     assert!(
-        spec.contains("Schema version 2"),
-        "spec missing schema v2: {}",
+        spec.contains("Schema version 3"),
+        "spec missing schema v3: {}",
         spec
     );
 }
@@ -132,7 +133,7 @@ fn open_rejects_wrong_schema() {
     match r {
         Err(dl_ledger::LedgerError::SchemaMismatch { found, expected }) => {
             assert_eq!(found, 1);
-            assert_eq!(expected, 2);
+            assert_eq!(expected, 3);
         }
         other => panic!("expected SchemaMismatch, got {:?}", other),
     }

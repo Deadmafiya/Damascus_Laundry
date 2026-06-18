@@ -106,6 +106,7 @@ mod tests {
                 expected_failed_cost: 0,
             },
             decision: Decision::WouldNotTrade,
+            tip_lamports: 0,
         }
     }
 
@@ -116,7 +117,7 @@ mod tests {
         let _ = w.into_inner().unwrap();
         assert_eq!(&buf[0..8], b"DLD-LDG1");
         let schema = u32::from_le_bytes([buf[8], buf[9], buf[10], buf[11]]);
-        assert_eq!(schema, 2);
+        assert_eq!(schema, 3);
         assert_eq!(buf.len(), 12, "header only, no entries");
     }
 

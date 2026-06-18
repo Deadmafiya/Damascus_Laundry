@@ -224,39 +224,59 @@ fn engine_aggregate(report: &ReconReport, name: AnchorName) -> Result<u128, Onch
         AnchorName::AttemptCount => Ok(u128::from(report.feed_events_consumed)),
         AnchorName::LandedArbCount => Ok(u128::from(report.summary.would_trade())),
         AnchorName::MeanTipLamports => {
-            // Engine has no per-cycle tip field; the harness does
-            // not model tip individually — that's a 06-02 follow-up
-            // when the simulator learns about Jito tip distribution.
-            // Return zero as a placeholder.
-            Ok(0)
+            // Real value: `total_tip_lamports` summed over the
+            // report's `cycle_records`. When the engine has 0
+            // records, the value is 0; when the records' tip
+            // fields are all 0 (no tip modeled yet), the value
+            // is 0; the harness reports a faithful 0 either way
+            // rather than a placeholder.
+            Ok(u128::from(report.total_tip_lamports))
         }
         AnchorName::MedianWinnerPnlSol => {
-            // Median PnL is a rank statistic; the ledger summary only
-            // carries sum. 06-02 must extend `LedgerSummary` with
-            // a median computation; for now we return the
-            // conservative sum divided by count as a coarse proxy.
-            let n = report.summary.total();
-            if n == 0 {
-                Ok(0)
-            } else {
-                let sum = report.summary.sum_conservative_e_pnl();
-                Ok(sum.unsigned_abs() / n as u128)
-            }
+            // Real value: the 50th percentile of `conservative.e_pnl`
+            // computed in the recon pipeline via
+            // `LedgerSummary::median_conservative_e_pnl()`. The unit
+            // is the same as `e_pnl` (lamports in the input token's
+            // base units; for SOL/USDC pairs this is lamports).
+            let median = report.summary.median_conservative_e_pnl();
+            Ok(median.unsigned_abs())
         }
         AnchorName::P95WinnerPnlSol => {
-            // Same caveat as MedianWinnerPnlSol — p95 requires a
-            // sorted vector. Coarse proxy: max |e_pnl| in records.
-            Ok(report
-                .cycle_records
-                .iter()
-                .map(|r| r.outcome.conservative.e_pnl.unsigned_abs())
-                .max()
-                .unwrap_or(0))
+            // Real value: the 95th percentile of `conservative.e_pnl`,
+            // same scale as `MedianWinnerPnlSol`.
+            let p95 = report.summary.p95_conservative_e_pnl();
+            Ok(p95.unsigned_abs())
         }
         AnchorName::TipAsPctOfMev => {
-            // Tip-as-%-of-MEV needs MEV gross, which the harness
-            // doesn't compute today. Placeholder.
-            Ok(0)
+            // `TipAsPctOfMev = mean_tip / mean_mev × 10_000`. With
+            // the current sim, `mev` is not separated from `gross
+            // output`; we approximate `mev` with
+            // `mean_conservative_e_pnl` over a positive-PnL subset
+            // (the "MEV" available after haircut). This is a
+            // first-order approximation, documented in the
+            // 06-02 honest-deferral list. When tip is 0 (the
+            // current default), the result is 0.
+            let n = report.summary.total();
+            if n == 0 {
+                return Ok(0);
+            }
+            // Sum of positive conservative e_pnl (a proxy for MEV
+            // available to the cycle).
+            let total_mev: i128 = report
+                .cycle_records
+                .iter()
+                .map(|r| r.outcome.conservative.e_pnl.max(0))
+                .fold(0i128, i128::saturating_add);
+            if total_mev <= 0 {
+                return Ok(0);
+            }
+            // tip / mev × 10_000, both in lamports.
+            let tip = report.total_tip_lamports as i128;
+            let mev = total_mev;
+            // Saturating multiplication to avoid overflow on
+            // adversarial inputs.
+            let bps = tip.saturating_mul(10_000) / mev;
+            Ok(bps.unsigned_abs())
         }
     }
 }

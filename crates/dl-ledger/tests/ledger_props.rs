@@ -54,6 +54,7 @@ fn arb_entry(seq: u64, opt: i128, con: i128) -> LedgerEntry {
         optimistic: arb_ev(opt),
         conservative: arb_ev(con),
         decision: Decision::from_ev(&arb_ev(con)),
+        tip_lamports: 0,
     }
 }
 

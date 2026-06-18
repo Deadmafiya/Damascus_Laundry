@@ -235,6 +235,7 @@ fn dummy_entry(seq: u64) -> dl_ledger::LedgerEntry {
         optimistic: ev,
         conservative: ev,
         decision: Decision::WouldNotTrade,
+        tip_lamports: 0,
     }
 }
 

@@ -133,17 +133,17 @@ mod tests {
         let s = format!(
             "{}",
             LedgerError::SchemaMismatch {
-                found: 3,
-                expected: 2
+                found: 2,
+                expected: 3
             }
         );
         assert!(
-            s.contains("v3"),
+            s.contains("v2"),
             "Display should include found version: {}",
             s
         );
         assert!(
-            s.contains("v2"),
+            s.contains("v3"),
             "Display should include expected version: {}",
             s
         );

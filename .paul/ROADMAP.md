@@ -184,7 +184,7 @@ macro anchors (avg winner $, failure rate, tip-as-%-of-MEV); Deflated-Sharpe exa
 **Plans:**
 - [x] 06-01: Golden-file replay + DST fault injection + invariants
 - [x] 06-02: On-chain reconciliation, calibration to macro anchors, overfitting metrics
-- [ ] 07-01: Metrics/observability + config-driven params
+- [x] **07-01 PLANNED** (`.paul/phases/07-observability-and-hardening/07-01-PLAN.md`):
 - [ ] 07-02: Multi-pool scale-up + v1.0 release docs
 
 **Goal:** Make the engine operable and trustworthy over long runs — dashboards,

@@ -26,10 +26,20 @@ use dl_feed::ws_feed::WsFeed;
 use dl_state::decoder::decode_amm_info;
 use tracing::info;
 
+use dl_app::config::EngineConfig;
 use dl_app::recon;
+use dl_ledger::{LedgerWriter, LEDGER_MAGIC, LEDGER_SCHEMA_VERSION};
 
 fn init_tracing() {
     dl_app::init_tracing();
+}
+
+/// Resolve the EngineConfig path from `DL_ENGINE_CONFIG`, falling
+/// back to a `config.toml` in the current working directory.
+fn config_path_from_env() -> std::path::PathBuf {
+    std::env::var("DL_ENGINE_CONFIG")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| std::path::PathBuf::from("config.toml"))
 }
 
 fn main() {
@@ -41,7 +51,7 @@ fn main() {
         "damascus_laundry starting (no keys, no live submission)"
     );
 
-    // Mode dispatch: dry-run > live capture > recon > placeholder.
+    // Mode dispatch: dry-run > live capture > recon > config > placeholder.
     if env::var("DL_DRY_RUN").ok().as_deref() == Some("1") {
         run_dry_run();
         return;
@@ -49,6 +59,29 @@ fn main() {
 
     if env::args().nth(1).as_deref() == Some("recon") {
         recon::dispatch();
+        return;
+    }
+
+    if env::args().nth(1).as_deref() == Some("config") {
+        let sub = env::args().nth(2);
+        match sub.as_deref() {
+            Some("print") => match EngineConfig::load(&config_path_from_env()) {
+                Ok(cfg) => {
+                    println!("{}", toml::to_string(&cfg).expect("serialize"));
+                }
+                Err(e) => {
+                    eprintln!("config error: {e}");
+                    std::process::exit(2);
+                }
+            },
+            _ => {
+                eprintln!("dl-app config — print the active EngineConfig");
+                eprintln!();
+                eprintln!("USAGE:");
+                eprintln!("    dl-app config print");
+            }
+        }
+        return;
     }
 
     match (env::var("DL_CAPTURE_PATH"), env::var("DL_RPC_URL")) {
@@ -144,6 +177,38 @@ fn run_dry_run() {
     });
 
     info!(path = %path, "starting dry-run replay");
+
+    // AC-5 closure (Phase 7 / plan 01): if DL_LEDGER_PATH is set,
+    // open a v3 ledger file at that path. The dry-run path is
+    // currently decode-only (no cycle detection); the file will
+    // contain only the header until the full pipeline lands in
+    // 07-02. For now, opening the writer proves the env-var
+    // wiring works.
+    if let Ok(ledger_path) = env::var("DL_LEDGER_PATH") {
+        let lp = std::path::Path::new(&ledger_path);
+        if let Some(parent) = lp.parent() {
+            if !parent.as_os_str().is_empty() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+        }
+        match LedgerWriter::new(std::fs::File::create(lp).expect("create ledger file")) {
+            Ok(_w) => {
+                info!(
+                    ledger_path = %lp.display(),
+                    magic = %std::str::from_utf8(LEDGER_MAGIC).unwrap(),
+                    schema = LEDGER_SCHEMA_VERSION,
+                    "DL_LEDGER_PATH set; opened v3 ledger"
+                );
+                // The writer is dropped at the end of this scope
+                // and writes its header on drop. The full cycle
+                // pipeline is in 07-02; for now the file is
+                // header-only.
+            }
+            Err(e) => {
+                eprintln!("DL_LEDGER_PATH: failed to open {}: {e}", ledger_path);
+            }
+        }
+    }
 
     let file = File::open(&path).unwrap_or_else(|e| {
         panic!(

@@ -70,6 +70,12 @@ pub struct LedgerEntry {
     pub conservative: ExpectedValue,
     /// `WouldTrade` iff `conservative.e_pnl > 0`.
     pub decision: Decision,
+    /// Per-cycle Jito tip in lamports (Phase 7 / plan 01). For
+    /// the spam submit path, this is 0 (tip is not paid on the
+    /// priority-fee path; the priority fee is in the net-profit
+    /// calculation). For the Jito-bundle path, this is the bid
+    /// in lamports that the cycle would have paid.
+    pub tip_lamports: u64,
 }
 
 impl LedgerEntry {
@@ -89,10 +95,30 @@ impl LedgerEntry {
             entry_id: seq,
             cycle_hash,
             net,
-            optimistic: outcome.optimistic,
-            conservative: outcome.conservative,
+            optimistic: outcome.optimistic.clone(),
+            conservative: outcome.conservative.clone(),
             decision,
+            // v1.0 default: tip is 0 in the ledger (the existing
+            // pipeline does not yet model per-cycle tip). A
+            // follow-up will populate this from `CostModel`.
+            tip_lamports: 0,
         }
+    }
+
+    /// Like `from_evaluated` but with an explicit tip. Use this
+    /// when the upstream pipeline knows the per-cycle tip (e.g.
+    /// when the simulation has been extended to model the Jito
+    /// bid separately from priority fees).
+    pub fn from_evaluated_with_tip(
+        cycle: &Cycle,
+        net: NetProfit,
+        outcome: &EvalOutcome,
+        seq: u64,
+        tip_lamports: u64,
+    ) -> Self {
+        let mut entry = Self::from_evaluated(cycle, net, outcome, seq);
+        entry.tip_lamports = tip_lamports;
+        entry
     }
 }
 

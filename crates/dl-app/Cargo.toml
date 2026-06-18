@@ -18,9 +18,11 @@ dl-ledger.workspace = true
 dl-recon.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+serde.workspace = true
 thiserror = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
 bs58 = "0.5"
+toml = "0.8"
 
 [lib]
 name = "dl_app"

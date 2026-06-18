@@ -5,6 +5,8 @@
 
 use tracing_subscriber::EnvFilter;
 
+pub mod config;
+pub mod metrics;
 pub mod recon;
 
 /// Initialize structured logging once. Idempotent — calls after the

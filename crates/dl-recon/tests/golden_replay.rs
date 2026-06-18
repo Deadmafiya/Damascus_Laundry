@@ -18,7 +18,18 @@ use dl_recon::pipeline::{replay_pools_to_ledger, ReplayParams};
 ///     cargo test -p dl-recon --test golden_replay -- --nocapture
 ///
 /// and copy the printed `report_hash` here after a deliberate change.
-const GOLDEN_HASH_TRIANGLE: u64 = 9_565_092_578_115_491_832;
+/// Golden hash for the canonical triangle pool universe.
+///
+/// 9565092578115491832: v2 schema (06-01).
+/// 9917465376805268376: v3 schema (07-01, +`tip_lamports: u64` per entry).
+///
+/// The v3 bump is a known consequence of the DLD-LDG1 v2 → v3
+/// schema change (Phase 7 / plan 01 AC-6). Test fixtures that
+/// assert the runtime hash match the on-disk hash use whichever
+/// value is current for the active schema.
+#[allow(dead_code)]
+const GOLDEN_HASH_V2: u64 = 9_565_092_578_115_491_832;
+const GOLDEN_HASH_V3_TRIANGLE: u64 = 9_917_465_376_805_268_376;
 
 fn specs_triangle() -> Vec<SynthPoolSpec> {
     vec![
@@ -62,13 +73,17 @@ fn golden_replay_triangle_matches() {
     assert!(fx.capture.starts_with(b"DLF-CAP1"));
     assert!(fx.ledger.starts_with(b"DLD-LDG1"));
 
-    // Golden check: if we have a committed value, enforce it.
-    if GOLDEN_HASH_TRIANGLE != 0 && report.report_hash != GOLDEN_HASH_TRIANGLE {
+    // Golden check: enforce against the current-schema hash. The
+    // v2 value is preserved as a comment for the historical record.
+    if GOLDEN_HASH_V3_TRIANGLE != 0 && report.report_hash != GOLDEN_HASH_V3_TRIANGLE {
         panic!(
-            "golden hash drift!\n  expected: {}\n  got:      {}\n\
+            "golden hash drift (v3 schema)!\n  expected: {}\n  got:      {}\n\
              If this is an intentional harness change, run the test once with\n\
-             GOLDEN_HASH_TRIANGLE = 0 to print the new value, then commit it.",
-            GOLDEN_HASH_TRIANGLE, report.report_hash
+             GOLDEN_HASH_V3_TRIANGLE = 0 to print the new value, then commit it.\n\
+             (v2 schema golden was {}.)\n",
+            GOLDEN_HASH_V3_TRIANGLE,
+            report.report_hash,
+            GOLDEN_HASH_V2
         );
     }
 }

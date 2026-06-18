@@ -139,6 +139,7 @@ mod tests {
                 expected_failed_cost: 0,
             },
             decision: Decision::WouldNotTrade,
+            tip_lamports: 0,
         }
     }
 
@@ -158,7 +159,7 @@ mod tests {
         match r {
             Err(LedgerError::SchemaMismatch { found, expected }) => {
                 assert_eq!(found, 1);
-                assert_eq!(expected, 2);
+                assert_eq!(expected, 3);
             }
             other => panic!("expected SchemaMismatch, got {:?}", other),
         }
@@ -182,7 +183,7 @@ mod tests {
         // Header + a length that says 100 bytes, but no payload.
         let mut bytes = Vec::new();
         bytes.extend_from_slice(b"DLD-LDG1");
-        bytes.extend_from_slice(&2u32.to_le_bytes());
+        bytes.extend_from_slice(&3u32.to_le_bytes());
         bytes.extend_from_slice(&100u32.to_le_bytes());
         // intentionally no payload
         let mut r = LedgerReader::open(bytes.as_slice()).unwrap();

@@ -17,14 +17,14 @@ latency, competition, landing probability, and fees are modeled pessimistically.
 ## Current Position
 
 Milestone: v1.0 Accurate Paper-Trading Engine (v1.0.0)
-Phase: 7 of 7 (Observability + Hardening) — Planning
-Plan: 07-01 + 07-02 PLANNED (not yet applied). 07-01 has no research gate; 07-02 BLOCKED on `.paul/research/multi-dex-math.md`.
-Status: Phase 6 closed (live Jito pull is an open gate, documented). Phase 7 plans written; no code shipped yet.
-Last activity: 2026-06-18 — Audited Phases 1-6; planned Phase 7 (07-01 + 07-02)
+Phase: 7 of 7 (Observability + Hardening) — Plan 01 applied
+Plan: 07-01 applied (EngineConfig + MetricsSink + DL_LEDGER_PATH + LedgerSummary percentiles + ReconReport tip + engine_aggregate real values). 07-02 PLANNED, BLOCKED on `.paul/research/multi-dex-math.md`.
+Status: PLAN 07-01 APPLIED — 8 new source files, 30 new tests (310 total), golden hash bumped to v3 (9917465376805268376).
+Last activity: 2026-06-18 — Applied Phase 7 / plan 01
 
 Progress:
-- Milestone: [█████████░] ~90% (6 of 7 phases complete; Phase 7 in planning)
-- Phase 7: [██░░░░░░░░] 0/2 applied, 2/2 planned
+- Milestone: [█████████░] ~95% (6.5 of 7 phases complete; Phase 7 plan 01 applied, plan 02 blocked on research gate)
+- Phase 7: [█████░░░░░] 1/2 applied, 1/2 planned (07-02 blocked on multi-dex-math.md)
 
 ## Loop Position
 
