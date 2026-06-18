@@ -1,0 +1,21 @@
+[package]
+name = "dl-recon"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "Phase 6 reconciliation harness: re-evaluate ledgers under alternative parameters and surface divergences."
+
+[dependencies]
+dl-core.workspace = true
+dl-feed.workspace = true
+dl-state.workspace = true
+dl-detect.workspace = true
+dl-sim.workspace = true
+dl-ledger.workspace = true
+tracing.workspace = true
+serde.workspace = true
+bincode.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true

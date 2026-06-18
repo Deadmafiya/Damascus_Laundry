@@ -12,19 +12,19 @@ See: .paul/PROJECT.md (updated 2026-06-17)
 
 **Core value:** Reliable, honest profitability estimation — count profit only after
 latency, competition, landing probability, and fees are modeled pessimistically.
-**Current focus:** v1.0 Accurate Paper-Trading Engine — Phase 5 (Simulation Core + Paper Ledger)
+**Current focus:** v1.0 Accurate Paper-Trading Engine — Phase 6 (Reconciliation + Calibration)
 
 ## Current Position
 
 Milestone: v1.0 Accurate Paper-Trading Engine (v1.0.0)
-Phase: 5 of 7 (Simulation Core + Paper Ledger) — Applied
-Plan: 05-01 + 05-02 applied (EV core + paper ledger). Phase 5 complete.
-Status: PLAN 05-02 APPLIED — dl-ledger crate built (7 source files, 3 test files), 41 new tests (211 total), float-free guard added to dl-ledger, 5 guards total across workspace.
-Last activity: 2026-06-18 — Planned Phase 5 / plan 02 (paper ledger)
+Phase: 6 of 7 (Reconciliation + Calibration) — Applied (plan 01)
+Plan: 06-01 applied (golden-file replay + DST fault injection + invariants). Phase 6 / plan 01 complete.
+Status: PLAN 06-01 APPLIED — dl-recon crate built (6 source files, 4 test files), 42 new tests (253 total), golden hash committed (9_565_092_578_115_491_832), float-free CI guard added.
+Last activity: 2026-06-18 — Applied Phase 6 / plan 01 (reconciliation harness)
 
 Progress:
-- Milestone: [██████░░░░] ~71% (5 of 7 phases complete, Phase 5 in progress)
-- Phase 5: [██████░░░░] planning (1/2 planned, 1/2 applied)
+- Milestone: [██████▒░░░] ~78% (5.5 of 7 phases complete; Phase 6 plan 01 applied)
+- Phase 6: [██░░░░░░░░] 1/2 planned, 1/2 applied (06-02 blocked on research doc)
 
 ## Loop Position
 

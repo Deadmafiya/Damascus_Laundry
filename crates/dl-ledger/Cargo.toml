@@ -10,7 +10,7 @@ dl-sim.workspace = true
 dl-state.workspace = true
 tracing.workspace = true
 serde.workspace = true
-bincode = "1"
+bincode.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true

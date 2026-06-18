@@ -211,6 +211,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "dl-recon"
+version = "0.0.0"
+dependencies = [
+ "bincode",
+ "dl-core",
+ "dl-detect",
+ "dl-feed",
+ "dl-ledger",
+ "dl-sim",
+ "dl-state",
+ "proptest",
+ "serde",
+ "thiserror",
+ "tracing",
+]
+
+[[package]]
 name = "dl-sim"
 version = "0.0.0"
 dependencies = [

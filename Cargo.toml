@@ -8,6 +8,7 @@ members = [
     "crates/dl-sim",
     "crates/dl-ledger",
     "crates/dl-app",
+    "crates/dl-recon",
 ]
 
 [workspace.package]
@@ -22,6 +23,8 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 proptest = "1"
 serde = { version = "1", features = ["derive"] }
+bincode = "1"
+thiserror = "1"
 
 # Internal crates
 dl-core = { path = "crates/dl-core" }
