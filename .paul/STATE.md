@@ -18,13 +18,13 @@ latency, competition, landing probability, and fees are modeled pessimistically.
 
 Milestone: v1.0 Accurate Paper-Trading Engine (v1.0.0)
 Phase: 5 of 7 (Simulation Core + Paper Ledger) — Applying
-Plan: 05-01 applied (EV decomposition + dual bounds); 05-02 (paper ledger) next
-Status: PLAN 05-01 ✅ DONE, ready for 05-02
-Last activity: 2026-06-18 — Applied Phase 5 / plan 01 (EV core)
+Plan: 05-01 applied; 05-02 planned (paper ledger, awaiting APPLY)
+Status: PLAN 05-02 ready for APPLY
+Last activity: 2026-06-18 — Planned Phase 5 / plan 02 (paper ledger)
 
 Progress:
 - Milestone: [██████░░░░] ~71% (5 of 7 phases complete, Phase 5 in progress)
-- Phase 5: [███░░░░░░░] applying (1/2 plans)
+- Phase 5: [██████░░░░] planning (1/2 planned, 1/2 applied)
 
 ## Loop Position
 
@@ -114,10 +114,10 @@ Phase 5 commits: 1 (6b258ed) — 1 in-session
 ## Session Continuity
 
 Last session: 2026-06-18
-Stopped at: Phase 5 plan 01 (EV decomposition + dual bounds) applied. Workspace builds; fmt/clippy/test green; 170 tests pass + 1 ignored; 4 float-free CI guards (dl-feed, dl-state, dl-detect, dl-sim) green. Next: 05-02 (paper ledger — append-only file, schema v2, zero new deps). Then Phase 6 (reconciliation + calibration).
-Next action: Plan 05-02 (paper ledger), then /paul:apply.
-Resume file: .paul/phases/05-simulation-core-paper-ledger/05-02-PLAN.md (to be created)
-Resume context: dl-sim::ev::ExpectedValue { e_pnl, p_detect, p_win, p_land, expected_failed_cost } is the row schema 05-02 will write. Default values are Phase-6 calibration targets.
+Stopped at: Phase 5 plan 02 PLANNED (paper ledger). Plan 01 (EV core) is applied; 170 tests pass. Plan 02 builds the dl-ledger crate (currently a placeholder): LedgerEntry + Decision + LedgerHash + LedgerWriter + LedgerReader + LedgerSummary, int-only CI guard, DL_LEDGER_PATH env var in dl-app dry-run path. Zero new deps beyond bincode.
+Next action: /paul:apply .paul/phases/05-simulation-core-paper-ledger/05-02-PLAN.md
+Resume file: .paul/phases/05-simulation-core-paper-ledger/05-02-PLAN.md
+Resume context: 05-02 fills out dl-ledger crate (8 files: format/entry/hash/error/writer/reader/summary/lib), adds int_only_no_fractional guard, wires DL_LEDGER_PATH into dl-app. Phase 6 will read the ledger for reconciliation + calibration.
 
 ---
 *STATE.md — Updated after every significant action*
