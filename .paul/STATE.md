@@ -12,19 +12,18 @@ See: .paul/PROJECT.md (updated 2026-06-17)
 
 **Core value:** Reliable, honest profitability estimation — count profit only after
 latency, competition, landing probability, and fees are modeled pessimistically.
-**Current focus:** v1.0 Accurate Paper-Trading Engine — Phase 7 (Observability + Hardening)
+**Current focus:** v1.0 Accurate Paper-Trading Engine — Phase 7 plan 02 (APPLIED, TAGGED v1.0.0)
 
 ## Current Position
 
-Milestone: v1.0 Accurate Paper-Trading Engine (v1.0.0)
-Phase: 7 of 7 (Observability + Hardening) — Plan 01 applied
-Plan: 07-01 applied (EngineConfig + MetricsSink + DL_LEDGER_PATH + LedgerSummary percentiles + ReconReport tip + engine_aggregate real values). 07-02 PLANNED, BLOCKED on `.paul/research/multi-dex-math.md`.
-Status: PLAN 07-01 APPLIED — 8 new source files, 30 new tests (310 total), golden hash bumped to v3 (9917465376805268376).
-Last activity: 2026-06-18 — Applied Phase 7 / plan 01
+Milestone: v1.0 Accurate Paper-Trading Engine (v1.0.0 — **TAGGED**)
+Phase: 7 of 7 (Observability + Hardening) — Plan 02 APPLIED
+Status: v1.0.0 tag cut. Multi-DEX (Raydium + Orca + Meteora), Prometheus metrics, reproduce_paper_pnl.sh, v3 paper ledger with tip + percentiles, Deflated Sharpe / PBO overfitting defense. 360 tests passing. Build hash SHA-256: 88b00ac9d7f7cb54ecce1d22322cef2495f4da3d17153c6fad62114ac503433a.
+Last activity: 2026-06-19 — Applied Phase 7 / plan 02, cut v1.0.0 tag
 
 Progress:
-- Milestone: [█████████░] ~95% (6.5 of 7 phases complete; Phase 7 plan 01 applied, plan 02 blocked on research gate)
-- Phase 7: [█████░░░░░] 1/2 applied, 1/2 planned (07-02 blocked on multi-dex-math.md)
+- Milestone: [██████████] 100% (v1.0.0 TAGGED)
+- Phase 7: [██████████] 2/2 applied, 0/2 planned
 
 ## Loop Position
 
