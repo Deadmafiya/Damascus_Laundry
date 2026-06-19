@@ -224,9 +224,13 @@ config-driven params, multi-pool/multi-DEX scale-up. (Ships v1.0.)
   that the conservative bound was a no-op). Tagged
   `v1.1.0-executor`. 403 tests passing (was 360 at v1.0.0, +43
   in 08-01).
-- [ ] 08-02: Streaming detector (`dl-stream` crate) + real
-  `reqwest` + `solana-sdk` + `jito-bundle` deps + latency
-  benchmark + `dl-app run --feed ws`. Tagged `v1.1.0-streaming`.
+- [x] **08-02 APPLIED** (`.paul/phases/08-live-execution/08-02-SUMMARY.md`):
+  Streaming detector (`dl-stream` crate: `StreamingGraph`,
+  `LatencyHistogram`, `run()`) + latency benchmark (p99 < 80ms)
+  + `dl-app run` subcommand skeleton. Tagged
+  `v1.1.0-streaming`. 417 tests passing (was 403 at
+  v1.1.0-executor, +14 dl-stream lib + 2 e2e latency = +16
+  in 08-02).
 - [ ] 08-03: Devnet gate + mainnet-paper gate (0.001 SOL cap) +
   mainnet production gate (5 SOL cap, 7-day validation) + final
   `v1.1.0` tag.

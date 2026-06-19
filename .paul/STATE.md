@@ -12,18 +12,18 @@ See: .paul/PROJECT.md (updated 2026-06-17)
 
 **Core value:** Reliable, honest profitability estimation — count profit only after
 latency, competition, landing probability, and fees are modeled pessimistically.
-**Current focus:** v1.1.0 Live Execution — Phase 8 plan 01 (APPLIED, TAGGED v1.1.0-executor)
+**Current focus:** v1.1.0 Live Execution — Phase 8 plan 02 (APPLIED, TAGGED v1.1.0-streaming)
 
 ## Current Position
 
-Milestone: v1.1.0 Live Execution (in progress; v1.0.0 TAGGED, v1.1.0-executor TAGGED)
-Phase: 8 of 8 (Live Execution) — Plan 01 APPLIED
-Status: v1.1.0-executor sub-tag cut. Paper-mode executor + hot-wallet signer shipped; tip modeling closed. 403 tests passing (was 360 at v1.0.0, +43 in 08-01). User feedback #1 ("tip modeling is a no-op") CLOSED.
-Last activity: 2026-06-19 — Applied Phase 8 / plan 01, tagged v1.1.0-executor
+Milestone: v1.1.0 Live Execution (in progress; v1.0.0 TAGGED, v1.1.0-executor TAGGED, v1.1.0-streaming TAGGED)
+Phase: 8 of 8 (Live Execution) — Plan 02 APPLIED
+Status: v1.1.0-streaming sub-tag cut. Streaming detector (dl-stream crate) and latency benchmark (p99 < 80ms) landed. 417 tests passing (was 360 at v1.0.0, +57 since v1.0). User feedback #1 (tip modeling) CLOSED in 08-01.
+Last activity: 2026-06-19 — Applied Phase 8 / plan 02, tagged v1.1.0-streaming
 
 Progress:
-- Milestone: [██████████] 100% for v1.0.0; [██░░░░░░░░] 20% for v1.1.0 (08-01 of 08-03 done)
-- Phase 8: [███░░░░░░░] 1/3 applied (08-01 done, 08-02 and 08-03 planned)
+- Milestone: [██████████] 100% for v1.0.0; [█████░░░░░] 50% for v1.1.0 (08-01 + 08-02 done, 08-03 pending)
+- Phase 8: [███████░░░] 2/3 applied (08-01 + 08-02 done, 08-03 pending)
 
 ## Loop Position
 
