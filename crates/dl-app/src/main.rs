@@ -581,8 +581,11 @@ fn run_live_paper(wallet_path: &str, mode: &dl_signer::ResolvedLiveMode) {
         .expect("placeholder pool construction must succeed")
     });
 
-    // EvalParams: conservative defaults from dl-sim.
-    let eval_params = EvalParams::conservative_default();
+    // EvalParams: paper mode uses OPTIMISTIC bounds so the
+    // wallet records every detected cycle as a candidate
+    // trade. The conservative bound (with realistic win-rate
+    // decay) is reserved for live execution in v1.1.5+.
+    let eval_params = EvalParams::optimistic();
 
     let deadline_secs: u64 = std::env::var("DL_LIVE_DURATION_SECS")
         .ok()
