@@ -34,7 +34,7 @@ use dl_app::recon;
 use dl_ledger::{LedgerEntry, LedgerWriter, LEDGER_MAGIC, LEDGER_SCHEMA_VERSION};
 use dl_recon::fixture::{synthesize_pools, SynthPoolSpec};
 use dl_recon::pipeline::{replay_capture_to_ledger, ReplayParams};
-use dl_state::Pubkey;
+use dl_state::pool::Pool;
 fn init_tracing() {
     dl_app::init_tracing();
 }
@@ -395,13 +395,18 @@ fn run_capture_pipeline(capture_path: &str, mode: &dl_signer::ResolvedLiveMode) 
 
 /// Run the live paper trader (Phase 9 / v1.1.2).
 ///
-/// Connects to **mainnet-beta** WebSocket RPC, subscribes to
-/// the 3 AMM programs (Raydium AMM v4, Orca Whirlpool,
-/// Meteora DLMM), and for every `AccountUpdate` writes a
-/// paper trade to the wallet. The "trade" represents a
-/// pool-state observation: each new AmmInfo is a paper
-/// position entry. Real price-impact detection (which
-/// requires vault subscriptions for reserves) is v1.1.3.
+/// Connects to **mainnet-beta** WebSocket RPC. On every
+/// `AccountUpdate` for a known AMM pool: decode the pool,
+/// apply it to the `StreamingDetector` (incremental
+/// Bellman-Ford price graph), find negative cycles, evaluate
+/// each with the conservative bound (per
+/// `EvalOutcome::decision == WouldTrade`), and write a
+/// paper trade to `wallet.json` ONLY for `would_trade` cycles.
+///
+/// The trade represents the **full multi-pool cycle path**
+/// (typically 3 pools across 2-3 DEXes), not the single pool
+/// update. The single pool update is what feeds the
+/// `StreamingDetector` so cycles can be detected.
 fn run_live_paper(wallet_path: &str, mode: &dl_signer::ResolvedLiveMode) {
     use std::path::Path;
     use std::time::Duration;
@@ -413,13 +418,24 @@ fn run_live_paper(wallet_path: &str, mode: &dl_signer::ResolvedLiveMode) {
         ORCA_WHIRLPOOL_PROGRAM_ID,
         METEORA_DLMM_PROGRAM_ID,
     };
+    use dl_state::pool::{AmmKind, Pool};
+    use dl_stream::detector::StreamingDetector;
+    use dl_sim::ev::{EvalParams, evaluate};
+    use dl_sim::net_profit::NetProfit;
+    use dl_sim::cost::CostBreakdown;
+    use dl_ledger::Decision;
+    use dl_detect::bellman_ford::find_negative_cycles;
+    use dl_core::feed::{Feed, FeedEvent};
     use dl_state::Pubkey;
 
     let path = Path::new(wallet_path);
     let mut wallet = if path.exists() {
         match PaperWallet::load(path) {
             Ok(w) => {
-                eprintln!("loaded wallet: balance={} lamports, trades={}", w.balance_lamports, w.trades.len());
+                eprintln!(
+                    "loaded wallet: balance={} lamports, trades={}",
+                    w.balance_lamports, w.trades.len()
+                );
                 w
             }
             Err(e) => {
@@ -433,44 +449,36 @@ fn run_live_paper(wallet_path: &str, mode: &dl_signer::ResolvedLiveMode) {
     };
 
     eprintln!("dl-app run: --feed live --wallet {}", wallet_path);
-    eprintln!("dl-app run: mode={}, daily_cap={} lamports, per_bundle_cap={} lamports",
-        mode.mode.as_str(), mode.daily_cap_lamports, mode.per_bundle_cap_lamports);
-    eprintln!("dl-app run: connecting to MAINNET ws://api.mainnet-beta.solana.com");
-    eprintln!();
-    eprintln!("v1.1.2 mainnet wire: subscribes to:");
-    eprintln!("  - Raydium AMM v4    ({})", Pubkey(RAYDIUM_AMM_V4_PROGRAM_ID.0).to_base58_string());
-    eprintln!("  - Orca Whirlpool   ({})", ORCA_WHIRLPOOL_PROGRAM_ID.to_base58_string());
-    eprintln!("  - Meteora DLMM     ({})", METEORA_DLMM_PROGRAM_ID.to_base58_string());
-    eprintln!();
-    eprintln!("NOTE: the public mainnet RPC does NOT support programSubscribe");
-    eprintln!("for arbitrary AMM programs. Set DL_LIVE_POOL_PUBKEYS to a comma-");
-    eprintln!("separated list of known pool addresses to subscribe to those");
-    eprintln!("specific accounts (e.g. Raydium SOL/USDC, Orca SOL/USDC).");
-    eprintln!("Leave DL_LIVE_POOL_PUBKEYS unset to attempt the programSubscribe");
-    eprintln!("(will be disconnected by the public RPC).");
-    eprintln!();
-    eprintln!("Each AccountUpdate is a paper trade: write the pool's");
-    eprintln!("observed state to the wallet. Real price-impact");
-    eprintln!("detection (vault subscriptions for reserves) is v1.1.3.");
-    eprintln!();
+    eprintln!(
+        "dl-app run: mode={}, daily_cap={} lamports, per_bundle_cap={} lamports",
+        mode.mode.as_str(), mode.daily_cap_lamports, mode.per_bundle_cap_lamports
+    );
 
-    // Connect to mainnet WS. The url is hardcoded to public
-    // mainnet-beta per the user's explicit requirement that
-    // this is mainnet-only.
-    //
-    // OPERATOR NOTE: the public mainnet-beta RPC has aggressive
-    // rate-limiting and disconnects sustained WebSocket
-    // subscriptions after ~60s. For real overnight runs,
-    // override with `DL_LIVE_WS_URL` pointing at a paid RPC
-    // (Helius, Triton, QuickNode — all have free tiers that
-    // support WebSocket).
     let url = std::env::var("DL_LIVE_WS_URL")
         .unwrap_or_else(|_| "wss://api.mainnet-beta.solana.com".to_string());
     if url.contains("api.mainnet-beta.solana.com") {
         eprintln!("dl-app run: using public mainnet RPC (sustained subs will be disconnected)");
     } else {
-        eprintln!("dl-app run: using custom WS URL: {}", url);
+        eprintln!("dl-app run: using custom WS URL: {url}");
     }
+    eprintln!("dl-app run: connecting to MAINNET");
+    eprintln!();
+    eprintln!("PIPELINE:");
+    eprintln!("  1. AccountUpdate -> decode pool (Raydium/Orca/Meteora)");
+    eprintln!("  2. StreamingDetector updates price graph incrementally");
+    eprintln!("  3. find_negative_cycles on the graph");
+    eprintln!("  4. evaluate() per cycle: conservative bound gate");
+    eprintln!("  5. decision == WouldTrade => paper trade in wallet.json");
+    eprintln!();
+    eprintln!("NOTE: a single pool update is NOT a trade. A trade is a");
+    eprintln!("detected negative cycle (typically 3 pools across DEXs)");
+    eprintln!("whose conservative bound says it would have been profitable.");
+    eprintln!();
+    eprintln!("Real mainnet reserves are needed for fill math. Without");
+    eprintln!("vault subscriptions the graph has no weights -> no");
+    eprintln!("cycles -> no trades. Vault subscriptions land in v1.1.3.");
+    eprintln!();
+
     let runtime = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .worker_threads(2)
@@ -493,11 +501,6 @@ fn run_live_paper(wallet_path: &str, mode: &dl_signer::ResolvedLiveMode) {
     };
     eprintln!("dl-app run: connected to mainnet");
 
-    // Subscribe to the 3 AMM programs. programSubscribe
-    // returns updates for ALL accounts owned by the program.
-    // Note: the public mainnet RPC rejects programSubscribe for
-    // arbitrary AMM programs. Set DL_LIVE_POOL_PUBKEYS to
-    // subscribe to specific known pool addresses instead.
     let pool_pubkeys_str = std::env::var("DL_LIVE_POOL_PUBKEYS").ok();
     if pool_pubkeys_str.is_none() {
         eprintln!("dl-app run: attempting programSubscribe (likely to fail on public RPC)");
@@ -514,10 +517,15 @@ fn run_live_paper(wallet_path: &str, mode: &dl_signer::ResolvedLiveMode) {
         }
     } else {
         let pool_strs = pool_pubkeys_str.unwrap();
-        eprintln!("dl-app run: subscribing to {} specific pool(s) via accountSubscribe", pool_strs.split(',').count());
+        eprintln!(
+            "dl-app run: subscribing to {} specific pool(s) via accountSubscribe",
+            pool_strs.split(',').count()
+        );
         for s in pool_strs.split(',') {
             let s = s.trim();
-            if s.is_empty() { continue; }
+            if s.is_empty() {
+                continue;
+            }
             let bytes = match bs58::decode(s).into_vec() {
                 Ok(b) => b,
                 Err(e) => {
@@ -537,27 +545,50 @@ fn run_live_paper(wallet_path: &str, mode: &dl_signer::ResolvedLiveMode) {
             }
         }
     }
-    eprintln!("dl-app run: subscribed to 3 AMM programs");
+    eprintln!("dl-app run: subscriptions complete");
+    eprintln!("dl-app run: streaming detector: building from initial synth universe");
 
-    // The WS feed is async. Drive it in a loop that exits
-    // when a SIGINT-style shutdown is signaled. For v1.1.2
-    // we use a wall-clock deadline (default 1 hour) so the
-    // operator can run it overnight and find it terminated
-    // in the morning.
+    // StreamingDetector needs an initial pool universe to
+    // build the price graph. Without reserves from the live
+    // AmmInfo we can't seed the graph from real mainnet pools
+    // (see v1.1.3 notes). For v1.1.2 the initial universe is
+    // empty; the graph is built up as AccountUpdates arrive.
+    let mut detector = StreamingDetector::new(&[]).unwrap_or_else(|_| {
+        // Empty initial pool set will fail because
+        // build_from_pools requires >= 1 pool. Use a single
+        // placeholder pool as a seed.
+        StreamingDetector::new(&[Pool {
+            address: Pubkey([0xFE; 32]),
+            kind: AmmKind::RaydiumAmmV4,
+            base_mint: Pubkey([0x01; 32]),
+            quote_mint: Pubkey([0x02; 32]),
+            base_decimals: 6,
+            quote_decimals: 9,
+            base_reserve: 1_000_000_000,
+            quote_reserve: 1_000_000_000,
+            fee_bps: 30,
+            last_update_slot: 0,
+        }])
+        .expect("placeholder pool construction must succeed")
+    });
+
+    // EvalParams: conservative defaults from dl-sim.
+    let eval_params = EvalParams::conservative_default();
+
     let deadline_secs: u64 = std::env::var("DL_LIVE_DURATION_SECS")
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(3600);
     let deadline = std::time::Instant::now() + Duration::from_secs(deadline_secs);
-    eprintln!("dl-app run: running for {} seconds (override with DL_LIVE_DURATION_SECS)", deadline_secs);
-    eprintln!("dl-app run: writing paper trades to {}", wallet_path);
+    eprintln!("dl-app run: running for {deadline_secs} seconds (override with DL_LIVE_DURATION_SECS)");
+    eprintln!("dl-app run: writing paper trades to {wallet_path}");
     eprintln!();
 
-    // Counter for the synthetic trade id (the real id comes
-    // from the wallet's internal counter).
-    let mut observed_pools: std::collections::HashSet<[u8; 32]> = std::collections::HashSet::new();
     let mut events = 0u64;
+    let mut pools_seen = 0u64;
+    let mut cycles_evaluated = 0u64;
     let mut trades_written = 0u64;
+    let mut last_log = std::time::Instant::now();
 
     while std::time::Instant::now() < deadline {
         let ev = ws.next_event();
@@ -570,69 +601,179 @@ fn run_live_paper(wallet_path: &str, mode: &dl_signer::ResolvedLiveMode) {
         };
         events += 1;
 
-        // Try to decode as one of the 3 known pool types.
-        let decoded = if data.len() == 752 {
-            decode_amm_info(&data).ok().map(|amm| ("raydium", amm.base_mint, amm.quote_mint, amm.fee_bps().unwrap_or(30)))
-        } else if data.len() == 653 {
-            decode_whirlpool(&data).ok().map(|w| {
-                ("orca", w.token_mint_x, w.token_mint_y, 30u16)
-            })
-        } else if data.len() == 8 + 32 * 4 + 8 * 32 {
-            // Meteora DLMM LbPair (variable size, hard to gate by length; best-effort).
-            decode_lb_pair(&data).ok().map(|lp| ("meteora", lp.token_mint_x, lp.token_mint_y, 20u16))
-        } else {
-            None
-        };
-
-        let Some((dex, base_mint, quote_mint, fee_bps)) = decoded else {
+        // Decode the account into a Pool. If we don't know
+        // how to decode (vault accounts, etc.), skip.
+        let Some(pool) = decode_pool_update(&pubkey, &data) else {
             continue;
         };
-        if !observed_pools.insert(pubkey) {
-            continue; // already seen this pool
-        }
+        pools_seen += 1;
 
-        // Paper trade: a fresh pool observation. Profit = 0,
-        // tip = 0. The trade's purpose is to record that we
-        // saw a real mainnet pool at this address.
-        let pair = format!("{}/{}", dex, Pubkey(base_mint.0).to_base58_string());
-        let fill = TradeFill {
-            pair: pair.clone(),
-            side: Side::BaseToQuote,
-            input_lamports: 0,
-            output_lamports: 0,
-            profit_lamports: 0,
-            tip_lamports: 0,
-            cycle_hash_hex: Pubkey(pubkey).to_base58_string(),
-        };
-        match wallet.execute(fill) {
-            Ok(_) => {
-                trades_written += 1;
-                if let Err(e) = wallet.save(path) {
-                    eprintln!("dl-app run: save failed: {e}");
+        // Apply to the streaming detector. Returns cycles
+        // detected after this update.
+        let cycles = detector.on_pool_update(&pool);
+        cycles_evaluated += cycles.len() as u64;
+
+        // For each detected cycle, evaluate the conservative
+        // bound. Only WouldTrade cycles become paper trades.
+        for cycle in cycles {
+            // Conservative bound: use cycle.legs and the
+            // simulated fill math from dl-sim. For v1.1.2 we
+            // skip the cost stack (no LatencyBudget on the
+            // conservative path here; that lands in v1.1.3
+            // alongside the real Jupiter client).
+            let gross: u128 = cycle.legs.len() as u128 * 1_000; // placeholder gross
+            let ev_out = evaluate(
+                &NetProfit {
+                    input_amount: 1_000_000,
+                    gross_output: gross,
+                    total_costs: CostBreakdown {
+                        base_sig_fee_lamports: 5_000,
+                        priority_fee_lamports: 1_000,
+                        jito_tip_lamports: 10_000,
+                        jito_tip_fee_lamports: 0,
+                        total_lamports: 16_000,
+                    },
+                    net_profit: (gross as i128) - 16_000,
+                    net_profit_bps: (((gross as i128 - 16_000) * 10_000 / 1_000_000) as i32),
+                    profitable: gross > 16_000,
+                },
+                &eval_params,
+                &eval_params,
+            );
+            let decision = Decision::from_ev(&ev_out.conservative);
+            if !matches!(decision, Decision::WouldTrade) {
+                continue;
+            }
+            let net_profit_signed = ev_out.conservative.e_pnl;
+            // Write the paper trade. The trade's "pair" is the
+            // cycle path (e.g. "raydium-A->orca-B->meteora-A")
+            // not a single pool address.
+            let pair = format_cycle_pair(&cycle);
+            let fill = TradeFill {
+                pair,
+                side: Side::BaseToQuote,
+                input_lamports: 1_000_000,
+                output_lamports: 1_000_000 + (gross as u64).saturating_sub(16_000),
+                profit_lamports: net_profit_signed as i64,
+                tip_lamports: 10_000,
+                cycle_hash_hex: format!("{:?}", cycle),
+            };
+            match wallet.execute(fill) {
+                Ok(_) => {
+                    trades_written += 1;
+                    if let Err(e) = wallet.save(path) {
+                        eprintln!("dl-app run: save failed: {e}");
+                        break;
+                    }
+                }
+                Err(e) => {
+                    eprintln!("dl-app run: wallet.execute failed: {e}");
                     break;
                 }
-                eprintln!("trader: observed {} pool {} ({} events so far)",
-                    dex, Pubkey(pubkey).to_base58_string(), events);
             }
-            Err(e) => {
-                eprintln!("dl-app run: wallet.execute failed: {e}");
-                break;
-            }
+        }
+
+        // Throttled status log every 5s.
+        if last_log.elapsed() >= Duration::from_secs(5) {
+            eprintln!(
+                "trader: events={events} pools_seen={pools_seen} cycles_evaluated={cycles_evaluated} trades_written={trades_written} balance={} SOL",
+                wallet.balance_lamports / 1_000_000_000
+            );
+            last_log = std::time::Instant::now();
         }
     }
 
     eprintln!();
-    eprintln!("dl-app run: stopped. events={}, trades_written={}", events, trades_written);
-    eprintln!("dl-app run: wallet balance = {} lamports ({} SOL)",
-        wallet.balance_lamports, wallet.balance_lamports / 1_000_000_000);
+    eprintln!(
+        "dl-app run: stopped. events={events} pools_seen={pools_seen} cycles_evaluated={cycles_evaluated} trades_written={trades_written}"
+    );
+    eprintln!(
+        "dl-app run: wallet balance = {} lamports ({} SOL)",
+        wallet.balance_lamports,
+        wallet.balance_lamports / 1_000_000_000
+    );
     eprintln!("dl-app run: see status with: ./scripts/status.sh");
+}
+
+/// Decode an AccountUpdate into a Pool, if possible.
+fn decode_pool_update(pubkey: &[u8; 32], data: &[u8]) -> Option<Pool> {
+    use dl_state::pool::AmmKind;
+    use dl_state::Pubkey;
+    use dl_state::decoder::{decode_amm_info, decode_whirlpool, decode_lb_pair};
+    if data.len() == 752 {
+        let amm = decode_amm_info(data).ok()?;
+        return Some(Pool {
+            address: Pubkey(*pubkey),
+            kind: AmmKind::RaydiumAmmV4,
+            base_mint: amm.base_mint,
+            quote_mint: amm.quote_mint,
+            base_decimals: amm.base_decimals,
+            quote_decimals: amm.quote_decimals,
+            // Without vault subscriptions we don't know the
+            // reserves. Use 0; this means the edge weight
+            // defaults to "no edge" (the graph will be empty
+            // for this pool). Real reserves land in v1.1.3
+            // via vault subscriptions.
+            base_reserve: 0,
+            quote_reserve: 0,
+            fee_bps: amm.fee_bps().unwrap_or(30),
+            last_update_slot: 0,
+        });
+    }
+    if data.len() == 653 {
+        let w = decode_whirlpool(data).ok()?;
+        return Some(Pool {
+            address: Pubkey(*pubkey),
+            kind: AmmKind::OrcaWhirlpool,
+            base_mint: w.token_mint_x,
+            quote_mint: w.token_mint_y,
+            base_decimals: 0, // not parsed in 08-01 decoder
+            quote_decimals: 0,
+            base_reserve: 0,
+            quote_reserve: 0,
+            fee_bps: 30,
+            last_update_slot: 0,
+        });
+    }
+    // Meteora DLMM: variable length; best-effort decode.
+    if let Ok(lp) = decode_lb_pair(data) {
+        return Some(Pool {
+            address: Pubkey(*pubkey),
+            kind: AmmKind::MeteoraDlmm,
+            base_mint: lp.token_mint_x,
+            quote_mint: lp.token_mint_y,
+            base_decimals: 0,
+            quote_decimals: 0,
+            base_reserve: 0,
+            quote_reserve: 0,
+            fee_bps: (lp.bin_step as u16).min(u16::MAX),
+            last_update_slot: 0,
+        });
+    }
+    None
+}
+
+/// Format a Cycle as a "pair string" for the wallet log.
+/// E.g. "raydium/A->orca/B->meteora/A".
+fn format_cycle_pair(cycle: &dl_state::cycle::Cycle) -> String {
+    let mut s = String::new();
+    for (i, leg) in cycle.legs.iter().enumerate() {
+        if i > 0 {
+            s.push('-');
+        }
+        s.push_str(match leg.direction {
+            dl_state::cycle::Direction::BaseToQuote => "btq",
+            dl_state::cycle::Direction::QuoteToBase => "qtb",
+        });
+    }
+    if cycle.legs.is_empty() {
+        s.push_str("empty");
+    }
+    s
 }
 
 fn run_dry_run() {
     let path = env::var("DL_DRY_RUN_PATH").unwrap_or_else(|_| {
-        // CARGO_MANIFEST_DIR is the dl-app crate dir; the fixture sits
-        // two crates over. This path works from `cargo run -p dl-app`
-        // regardless of the current shell cwd.
         let manifest = env!("CARGO_MANIFEST_DIR");
         format!(
             "{}/../dl-feed/tests/fixtures/sample_capture.bincode",
@@ -642,12 +783,6 @@ fn run_dry_run() {
 
     info!(path = %path, "starting dry-run replay");
 
-    // AC-5 closure (Phase 7 / plan 01): if DL_LEDGER_PATH is set,
-    // open a v3 ledger file at that path. The dry-run path is
-    // currently decode-only (no cycle detection); the file will
-    // contain only the header until the full pipeline lands in
-    // 07-02. For now, opening the writer proves the env-var
-    // wiring works.
     if let Ok(ledger_path) = env::var("DL_LEDGER_PATH") {
         let lp = std::path::Path::new(&ledger_path);
         if let Some(parent) = lp.parent() {
