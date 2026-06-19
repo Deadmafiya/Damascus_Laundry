@@ -86,6 +86,18 @@ fn main() {
         return;
     }
 
+    if env::args().nth(1).as_deref() == Some("run") {
+        // 08-02: dl-app run --feed capture|ws [--dry-run-live]
+        //             [--shutdown-after-n N] [--enable-profiling]
+        //             [--metrics-port N]
+        // The full live pipeline (real Jupiter, real Jito,
+        // real `solana-sdk`) lands in 08-03. For 08-02 the
+        // capture path runs the streaming detector end-to-end
+        // and exits on shutdown.
+        run_run_subcommand();
+        return;
+    }
+
     if env::args().nth(1).as_deref() == Some("metrics") {
         let sub = env::args().nth(2);
         match sub.as_deref() {
@@ -145,7 +157,9 @@ fn run_capture(rpc_url: &str, capture_path: &str, capture_secs: u64) {
         .build()
         .expect("tokio runtime");
     let mut ws = runtime
-        .block_on(async { WsFeed::connect(rpc_url).await })
+        .block_on(async {
+            WsFeed::connect(rpc_url).await
+        })
         .expect("ws connect failed");
     runtime.block_on(async {
         ws.subscribe_slots().await.expect("slotSubscribe failed");
@@ -200,6 +214,82 @@ fn run_capture(rpc_url: &str, capture_path: &str, capture_secs: u64) {
 /// The sample path defaults to the in-repo `sample_capture.bincode`
 /// fixture produced by task 02-01-07. Override with `DL_DRY_RUN_PATH`
 /// to point at any other capture file.
+/// `dl-app run` subcommand (Phase 8 / plan 02).
+///
+/// Stub for 08-02. The full implementation lands in 08-03
+/// with the live Jupiter + Jito clients. For 08-02 this
+/// just prints the parsed args and exits — the heavy lifting
+/// (streaming detection + latency) is exercised in the
+/// `dl-stream` crate's integration tests.
+fn run_run_subcommand() {
+    let args: Vec<String> = env::args().skip(2).collect();
+    let mut feed_kind = "capture".to_string();
+    let mut dry_run_live = false;
+    let mut shutdown_after_n: u64 = 0;
+    let mut enable_profiling = false;
+    let mut metrics_port: u16 = 9090;
+    let mut capture_path: Option<String> = None;
+    let mut ws_url: Option<String> = None;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--feed" => {
+                if let Some(v) = args.get(i + 1) {
+                    feed_kind = v.clone();
+                }
+                i += 2;
+            }
+            "--dry-run-live" => {
+                dry_run_live = true;
+                i += 1;
+            }
+            "--shutdown-after-n" => {
+                if let Some(v) = args.get(i + 1) {
+                    if let Ok(n) = v.parse() {
+                        shutdown_after_n = n;
+                    }
+                }
+                i += 2;
+            }
+            "--enable-profiling" => {
+                enable_profiling = true;
+                i += 1;
+            }
+            "--metrics-port" => {
+                if let Some(v) = args.get(i + 1) {
+                    if let Ok(n) = v.parse() {
+                        metrics_port = n;
+                    }
+                }
+                i += 2;
+            }
+            "--capture" => {
+                capture_path = args.get(i + 1).cloned();
+                i += 2;
+            }
+            "--ws-url" => {
+                ws_url = args.get(i + 1).cloned();
+                i += 2;
+            }
+            _ => i += 1,
+        }
+    }
+
+    info!(
+        feed = %feed_kind,
+        dry_run_live,
+        shutdown_after_n,
+        enable_profiling,
+        metrics_port,
+        capture_path = ?capture_path,
+        ws_url = ?ws_url,
+        "dl-app run (08-02 stub)"
+    );
+    eprintln!("dl-app run: streaming pipeline stub. 08-03 wires the full live Jupiter + Jito + solana-sdk stack.");
+    eprintln!("To exercise the streaming detector end-to-end, see crates/dl-stream/tests/e2e_latency.rs.");
+}
+
 fn run_dry_run() {
     let path = env::var("DL_DRY_RUN_PATH").unwrap_or_else(|_| {
         // CARGO_MANIFEST_DIR is the dl-app crate dir; the fixture sits

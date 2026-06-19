@@ -421,6 +421,7 @@ dependencies = [
  "dl-detect",
  "dl-feed",
  "dl-state",
+ "serde",
  "thiserror",
  "tracing",
 ]
