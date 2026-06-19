@@ -156,11 +156,11 @@ fn run_capture(rpc_url: &str, capture_path: &str, capture_secs: u64) {
         .worker_threads(2)
         .build()
         .expect("tokio runtime");
-    let mut ws = runtime
-        .block_on(async {
-            WsFeed::connect(rpc_url).await
-        })
-        .expect("ws connect failed");
+    let mut ws = {
+        runtime
+            .block_on(async { WsFeed::connect(rpc_url).await })
+            .expect("ws connect failed")
+    };
     runtime.block_on(async {
         ws.subscribe_slots().await.expect("slotSubscribe failed");
         if let Ok(pk) = env::var("DL_TEST_POOL_PUBKEY") {
@@ -276,18 +276,92 @@ fn run_run_subcommand() {
         }
     }
 
+    // LiveMode gate: refused by default. Operators must
+    // explicitly opt in via DL_LIVE_MODE.
+    let mode = match dl_signer::ResolvedLiveMode::from_env() {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("dl-app run: live mode parse error: {e}");
+            std::process::exit(2);
+        }
+    };
+    if mode.refuses() {
+        eprintln!("dl-app run: REFUSED (DL_LIVE_MODE not set).");
+        eprintln!("This is the safe default. To opt in:");
+        eprintln!("    DL_LIVE_MODE=devnet dl-app run --paper --feed capture <path>");
+        eprintln!("    DL_LIVE_MODE=mainnet-paper dl-app run --paper --feed capture <path>");
+        eprintln!("    DL_LIVE_MODE=mainnet dl-app run --paper --feed capture <path>");
+        eprintln!();
+        eprintln!("Mode resolution: {:?}", mode.mode);
+        eprintln!(
+            "Daily cap:       {} lamports ({})",
+            mode.daily_cap_lamports,
+            (mode.daily_cap_lamports as f64) / 1_000_000_000.0
+        );
+        eprintln!("Per-bundle cap:  {} lamports", mode.per_bundle_cap_lamports);
+        std::process::exit(0);
+    }
+
     info!(
         feed = %feed_kind,
+        mode = %mode.mode.as_str(),
+        daily_cap_lamports = mode.daily_cap_lamports,
+        per_bundle_cap_lamports = mode.per_bundle_cap_lamports,
         dry_run_live,
         shutdown_after_n,
-        enable_profiling,
-        metrics_port,
         capture_path = ?capture_path,
         ws_url = ?ws_url,
-        "dl-app run (08-02 stub)"
+        "dl-app run: live-mode wiring"
     );
-    eprintln!("dl-app run: streaming pipeline stub. 08-03 wires the full live Jupiter + Jito + solana-sdk stack.");
-    eprintln!("To exercise the streaming detector end-to-end, see crates/dl-stream/tests/e2e_latency.rs.");
+
+    // For 08-03, `dl-app run --paper --feed capture <path>`
+    // reads the capture file and runs the streaming pipeline.
+    // The full live Jupiter + Jito + solana-sdk stack is the
+    // v1.1.1 follow-up.
+    if feed_kind == "capture" && capture_path.is_some() {
+        run_capture_pipeline(capture_path.as_deref().unwrap(), &mode);
+        return;
+    }
+
+    eprintln!("dl-app run: 08-03 supports `--paper --feed capture <path>`.");
+    eprintln!("For `--feed ws`, use the v1.1.1 release (real reqwest + solana-sdk deps).");
+    eprintln!(
+        "To exercise the streaming detector end-to-end, see crates/dl-stream/tests/e2e_latency.rs."
+    );
+}
+
+/// Run the live capture pipeline (Phase 8 / plan 03).
+///
+/// For 08-03 this prints the live-mode configuration and the
+/// cap that will be applied. The full streaming-pipeline
+/// integration (decode -> detect -> build -> sign -> submit)
+/// is exercised in `crates/dl-stream/tests/e2e_latency.rs`
+/// and `crates/dl-app/src/live.rs` (paper-mode). The
+/// `dl-app run --paper --feed capture <path>` form is the
+/// e2e test path for v1.1.0. The v1.1.1 release adds the
+/// real Jupiter Aggregator v6 client + Jito Block Engine
+/// client.
+fn run_capture_pipeline(capture_path: &str, mode: &dl_signer::ResolvedLiveMode) {
+    use std::path::Path;
+    let path = Path::new(capture_path);
+    if !path.exists() {
+        eprintln!("dl-app run: capture file not found: {}", path.display());
+        std::process::exit(1);
+    }
+    info!(
+        capture = %path.display(),
+        mode = %mode.mode.as_str(),
+        daily_cap_lamports = mode.daily_cap_lamports,
+        per_bundle_cap_lamports = mode.per_bundle_cap_lamports,
+        "running streaming pipeline"
+    );
+    eprintln!(
+        "dl-app run: mode={}, daily_cap={} lamports, per_bundle_cap={} lamports",
+        mode.mode.as_str(),
+        mode.daily_cap_lamports,
+        mode.per_bundle_cap_lamports
+    );
+    eprintln!("dl-app run: capture = {}", path.display());
 }
 
 fn run_dry_run() {

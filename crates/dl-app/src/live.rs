@@ -187,7 +187,9 @@ fn build_bundle_from_quote(
 }
 
 fn sign_marker(keystore: &KeyStore, bundle: &Bundle) -> u64 {
-    let pubkey = keystore.pubkey_hex_prefix();
+    let pubkey_bytes = keystore.public_key_for_print();
+    let pubkey = format!("{:02x}{:02x}{:02x}{:02x}...",
+        pubkey_bytes[0], pubkey_bytes[1], pubkey_bytes[2], pubkey_bytes[3]);
     let mut h: u64 = 0xcbf29ce484222325;
     for b in pubkey.bytes() {
         h ^= b as u64;

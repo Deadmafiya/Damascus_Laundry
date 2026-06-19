@@ -83,9 +83,9 @@ fn e2e_latency_under_80ms_p99_for_10k_events() {
         &mut f,
         &pools,
         &RunConfig {
-            shutdown_after_n_cycles: 0,
             shutdown_after: Some(Duration::from_secs(5)),
             cycle_log: None,
+            ..Default::default()
         },
     );
     assert!(result.is_ok(), "pipeline should exit cleanly");

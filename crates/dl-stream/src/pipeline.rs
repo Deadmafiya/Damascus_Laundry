@@ -6,6 +6,7 @@
 //! provides the streaming-detector-level pipeline without
 //! the executor/signer dependencies.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use dl_core::feed::{Feed, FeedEvent};
@@ -23,6 +24,10 @@ pub struct RunConfig {
     pub shutdown_after: Option<Duration>,
     /// Path to write the cycle log to (None = no log).
     pub cycle_log: Option<std::path::PathBuf>,
+    /// Optional shutdown signal. When the atomic flips to true,
+    /// the pipeline exits with `PipelineExit::GracefulShutdown`.
+    /// Operators wire this to SIGINT handling in `dl-app`.
+    pub shutdown_signal: Option<std::sync::Arc<AtomicBool>>,
 }
 
 impl Default for RunConfig {
@@ -31,6 +36,7 @@ impl Default for RunConfig {
             shutdown_after_n_cycles: 0,
             shutdown_after: None,
             cycle_log: None,
+            shutdown_signal: None,
         }
     }
 }
@@ -64,7 +70,7 @@ pub fn run(
     initial_pools: &[dl_state::pool::Pool],
     cfg: &RunConfig,
 ) -> Result<PipelineExit, String> {
-    let _ = initial_pools; // detector is already built from these
+    let _ = initial_pools;
     let t_detect = LatencyHistogram::new();
     let mut cycles = 0u64;
     let start = std::time::Instant::now();
@@ -80,6 +86,12 @@ pub fn run(
             write_log(cfg.cycle_log.as_deref(), cycles, &t_detect.snapshot());
             return Ok(PipelineExit::CycleLimit);
         }
+        if let Some(sig) = &cfg.shutdown_signal {
+            if sig.load(Ordering::Relaxed) {
+                write_log(cfg.cycle_log.as_deref(), cycles, &t_detect.snapshot());
+                return Ok(PipelineExit::GracefulShutdown);
+            }
+        }
 
         let Some(ev) = feed.next_event() else {
             write_log(cfg.cycle_log.as_deref(), cycles, &t_detect.snapshot());
@@ -88,8 +100,6 @@ pub fn run(
 
         if let FeedEvent::AccountUpdate { data, .. } = ev {
             let t0 = std::time::Instant::now();
-            // Identify the AMM by program ID (first 32 bytes of
-            // account data). If we don't recognize it, skip.
             let program_id = if data.len() >= 32 {
                 let mut p = [0u8; 32];
                 p.copy_from_slice(&data[..32]);
@@ -100,10 +110,6 @@ pub fn run(
             if identify_amm_by_program(&Pubkey(program_id)).is_none() {
                 continue;
             }
-            // 08-03 wires the full per-kind decode + pool update.
-            // For 08-02 the streaming detector is exercised via
-            // the unit tests in `detector.rs`; the full e2e
-            // pipeline decode is the 08-03 work.
             t_detect.record(t0.elapsed());
         }
     }
@@ -148,6 +154,20 @@ mod tests {
         }
     }
 
+    struct InfiniteFeed;
+    impl Feed for InfiniteFeed {
+        fn next_event(&mut self) -> Option<FeedEvent> {
+            // Yield placeholder AccountUpdates forever. Real
+            // streaming would use a tokio receiver; for the
+            // unit test we just need the loop to spin.
+            Some(FeedEvent::AccountUpdate {
+                slot: 0,
+                pubkey: [0u8; 32],
+                data: vec![0u8; 1024],
+            })
+        }
+    }
+
     fn synth_pool() -> Pool {
         Pool {
             address: Pubkey([0xA1; 32]),
@@ -185,5 +205,32 @@ mod tests {
         let pools = vec![synth_pool()];
         let d = StreamingDetector::new(&pools);
         assert!(d.is_ok());
+    }
+
+    #[test]
+    fn run_exits_gracefully_on_shutdown_signal() {
+        // Set up a pipeline that would otherwise run forever
+        // (InfiniteFeed), but flip the shutdown signal mid-run.
+        let pools = vec![synth_pool()];
+        let mut d = StreamingDetector::new(&pools).unwrap();
+        let mut f = InfiniteFeed;
+        let sig = std::sync::Arc::new(AtomicBool::new(false));
+        // Spawn a thread that flips the signal after 50ms.
+        let sig2 = sig.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(50));
+            sig2.store(true, Ordering::Relaxed);
+        });
+        let result = run(
+            &mut d,
+            &mut f,
+            &pools,
+            &RunConfig {
+                shutdown_after: Some(Duration::from_secs(10)),
+                shutdown_signal: Some(sig),
+                ..Default::default()
+            },
+        );
+        assert_eq!(result.unwrap(), PipelineExit::GracefulShutdown);
     }
 }

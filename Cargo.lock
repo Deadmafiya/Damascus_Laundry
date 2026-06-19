@@ -276,6 +276,7 @@ dependencies = [
  "dl-signer",
  "dl-sim",
  "dl-state",
+ "dl-stream",
  "serde",
  "serde_json",
  "thiserror",
@@ -382,6 +383,7 @@ version = "0.0.0"
 dependencies = [
  "aes-gcm",
  "argon2",
+ "bs58",
  "chrono",
  "dl-core",
  "rand 0.8.6",

@@ -36,9 +36,11 @@
 pub mod cap;
 pub mod error;
 pub mod keystore;
+pub mod livemode;
 pub mod ratelimit;
 
 pub use cap::{CapConfig, CapError, CapState};
 pub use error::SignerError;
 pub use keystore::{KeyFile, KeyStore};
+pub use livemode::{LiveMode, LiveModeParseError, ResolvedLiveMode};
 pub use ratelimit::{RateLimit, RateLimitConfig};
