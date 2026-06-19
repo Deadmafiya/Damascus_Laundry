@@ -423,6 +423,7 @@ dependencies = [
 name = "dl-state"
 version = "0.0.0"
 dependencies = [
+ "bs58",
  "dl-core",
  "proptest",
  "serde",

@@ -17,6 +17,11 @@ pub struct Pubkey(pub [u8; 32]);
 impl Pubkey {
     pub const ZERO: Self = Pubkey([0u8; 32]);
 
+    /// Base58 string of the inner 32 bytes. Cheap; calls `bs58::encode`.
+    pub fn to_base58_string(&self) -> String {
+        bs58::encode(self.0).into_string()
+    }
+
     pub fn from_slice_32(slice: &[u8]) -> Option<Self> {
         if slice.len() == 32 {
             let mut out = [0u8; 32];

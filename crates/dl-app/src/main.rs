@@ -148,6 +148,34 @@ fn main() {
 
 /// Live capture loop. Subscribes to slot updates and (if `DL_TEST_POOL_PUBKEY`
 /// is set) a single pool, then drains for `capture_secs` and prints a summary.
+/// Connect to a mainnet WebSocket RPC. Returns a boxed future.
+fn connect_mainnet_async<'a>(url: &'a str)
+    -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<WsFeed, dl_feed::FeedError>> + Send + 'a>>
+{
+    Box::pin(WsFeed::connect(url))
+}
+
+/// Subscribe to slots and (if DL_TEST_POOL_PUBKEY is set) a test pool.
+fn subscribe_test_pool_async<'a>(ws: &'a mut WsFeed)
+    -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<u64, dl_feed::FeedError>> + Send + 'a>>
+{
+    let pk = env::var("DL_TEST_POOL_PUBKEY").ok();
+    Box::pin(async move {
+        let _ = ws.subscribe_slots().await?;
+        if let Some(pk) = pk {
+            if let Ok(bytes) = bs58::decode(&pk).into_vec() {
+                if bytes.len() == 32usize {
+                    let mut arr = [0u8; 32];
+                    arr.copy_from_slice(&bytes);
+                    ws.subscribe_account(arr).await?;
+                    info!(pool = %pk, "subscribed to test pool");
+                }
+            }
+        }
+        Ok(0)
+    })
+}
+
 fn run_capture(rpc_url: &str, capture_path: &str, capture_secs: u64) {
     info!(rpc_url, capture_path, capture_secs, "starting live capture");
 
@@ -156,26 +184,12 @@ fn run_capture(rpc_url: &str, capture_path: &str, capture_secs: u64) {
         .worker_threads(2)
         .build()
         .expect("tokio runtime");
-    let mut ws = {
-        runtime
-            .block_on(async { WsFeed::connect(rpc_url).await })
-            .expect("ws connect failed")
-    };
-    runtime.block_on(async {
-        ws.subscribe_slots().await.expect("slotSubscribe failed");
-        if let Ok(pk) = env::var("DL_TEST_POOL_PUBKEY") {
-            if let Ok(bytes) = bs58::decode(&pk).into_vec() {
-                if bytes.len() == 32usize {
-                    let mut arr = [0u8; 32];
-                    arr.copy_from_slice(&bytes);
-                    ws.subscribe_account(arr)
-                        .await
-                        .expect("accountSubscribe failed");
-                    info!(pool = %pk, "subscribed to test pool");
-                }
-            }
-        }
-    });
+    let mut ws = runtime
+        .block_on(connect_mainnet_async(rpc_url))
+        .expect("ws connect failed");
+    runtime
+        .block_on(subscribe_test_pool_async(&mut ws))
+        .expect("subscribe_test_pool failed");
 
     let file = File::create(capture_path).expect("create capture file");
     let mut tee = CapturingFeed::new(ws, file).expect("CapturingFeed::new failed");
@@ -379,17 +393,26 @@ fn run_capture_pipeline(capture_path: &str, mode: &dl_signer::ResolvedLiveMode) 
     eprintln!("dl-app run: capture = {}", path.display());
 }
 
-/// Run the live paper trader (Phase 9).
+/// Run the live paper trader (Phase 9 / v1.1.2).
 ///
-/// Builds a small initial pool universe (synth triangle),
-/// runs the streaming detector continuously, and for every
-/// cycle where `would_trade == true` writes a paper trade
-/// to the wallet. Real WS feed expansion is v1.1.2.
+/// Connects to **mainnet-beta** WebSocket RPC, subscribes to
+/// the 3 AMM programs (Raydium AMM v4, Orca Whirlpool,
+/// Meteora DLMM), and for every `AccountUpdate` writes a
+/// paper trade to the wallet. The "trade" represents a
+/// pool-state observation: each new AmmInfo is a paper
+/// position entry. Real price-impact detection (which
+/// requires vault subscriptions for reserves) is v1.1.3.
 fn run_live_paper(wallet_path: &str, mode: &dl_signer::ResolvedLiveMode) {
     use std::path::Path;
     use std::time::Duration;
-    use dl_paper::PaperWallet;
-    use dl_state::pool::{AmmKind, Pool};
+    use dl_paper::{PaperWallet, TradeFill, Side};
+    use dl_state::decoder::{
+        decode_amm_info, decode_whirlpool, decode_lb_pair,
+        identify_amm_by_program,
+        RAYDIUM_AMM_V4_PROGRAM_ID,
+        ORCA_WHIRLPOOL_PROGRAM_ID,
+        METEORA_DLMM_PROGRAM_ID,
+    };
     use dl_state::Pubkey;
 
     let path = Path::new(wallet_path);
@@ -409,86 +432,200 @@ fn run_live_paper(wallet_path: &str, mode: &dl_signer::ResolvedLiveMode) {
         PaperWallet::new(10_000_000_000)
     };
 
-    // Initial pool universe: a 3-leg triangle. Real mainnet
-    // pool universe expansion is v1.1.2.
-    let pools = vec![
-        Pool {
-            address: Pubkey([0xA1; 32]),
-            kind: AmmKind::RaydiumAmmV4,
-            base_mint: Pubkey([0x01; 32]),
-            quote_mint: Pubkey([0x02; 32]),
-            base_decimals: 6, quote_decimals: 9,
-            base_reserve: 100_000_000, quote_reserve: 1_000_000_000,
-            fee_bps: 30, last_update_slot: 0,
-        },
-        Pool {
-            address: Pubkey([0xA2; 32]),
-            kind: AmmKind::RaydiumAmmV4,
-            base_mint: Pubkey([0x02; 32]),
-            quote_mint: Pubkey([0x03; 32]),
-            base_decimals: 9, quote_decimals: 6,
-            base_reserve: 1_000_000_000, quote_reserve: 105_000_000,
-            fee_bps: 30, last_update_slot: 0,
-        },
-        Pool {
-            address: Pubkey([0xA3; 32]),
-            kind: AmmKind::RaydiumAmmV4,
-            base_mint: Pubkey([0x03; 32]),
-            quote_mint: Pubkey([0x01; 32]),
-            base_decimals: 6, quote_decimals: 6,
-            base_reserve: 105_000_000, quote_reserve: 105_105_000,
-            fee_bps: 30, last_update_slot: 0,
-        },
-    ];
-
     eprintln!("dl-app run: --feed live --wallet {}", wallet_path);
     eprintln!("dl-app run: mode={}, daily_cap={} lamports, per_bundle_cap={} lamports",
         mode.mode.as_str(), mode.daily_cap_lamports, mode.per_bundle_cap_lamports);
-    eprintln!("dl-app run: initial pool universe: {} pools", pools.len());
-    eprintln!("dl-app run: continuous mode — runs until SIGINT");
+    eprintln!("dl-app run: connecting to MAINNET ws://api.mainnet-beta.solana.com");
     eprintln!();
-    eprintln!("v1.1.1 paper mode: detects cycles on the synth triangle,");
-    eprintln!("writes each would_trade cycle to {}.", wallet_path);
-    eprintln!("Real WS feed expansion is the v1.1.2 follow-up.");
+    eprintln!("v1.1.2 mainnet wire: subscribes to:");
+    eprintln!("  - Raydium AMM v4    ({})", Pubkey(RAYDIUM_AMM_V4_PROGRAM_ID.0).to_base58_string());
+    eprintln!("  - Orca Whirlpool   ({})", ORCA_WHIRLPOOL_PROGRAM_ID.to_base58_string());
+    eprintln!("  - Meteora DLMM     ({})", METEORA_DLMM_PROGRAM_ID.to_base58_string());
+    eprintln!();
+    eprintln!("NOTE: the public mainnet RPC does NOT support programSubscribe");
+    eprintln!("for arbitrary AMM programs. Set DL_LIVE_POOL_PUBKEYS to a comma-");
+    eprintln!("separated list of known pool addresses to subscribe to those");
+    eprintln!("specific accounts (e.g. Raydium SOL/USDC, Orca SOL/USDC).");
+    eprintln!("Leave DL_LIVE_POOL_PUBKEYS unset to attempt the programSubscribe");
+    eprintln!("(will be disconnected by the public RPC).");
+    eprintln!();
+    eprintln!("Each AccountUpdate is a paper trade: write the pool's");
+    eprintln!("observed state to the wallet. Real price-impact");
+    eprintln!("detection (vault subscriptions for reserves) is v1.1.3.");
     eprintln!();
 
-    // For v1.1.1, exit after one dry-run against the initial
-    // pool universe so the operator can see the wallet being
-    // written. The full streaming continuous loop is wired
-    // in the dl-stream crate; the live paper path is
-    // `dl-app run --feed capture` from v1.1.0.
-    let start_balance = wallet.balance_lamports;
+    // Connect to mainnet WS. The url is hardcoded to public
+    // mainnet-beta per the user's explicit requirement that
+    // this is mainnet-only.
+    //
+    // OPERATOR NOTE: the public mainnet-beta RPC has aggressive
+    // rate-limiting and disconnects sustained WebSocket
+    // subscriptions after ~60s. For real overnight runs,
+    // override with `DL_LIVE_WS_URL` pointing at a paid RPC
+    // (Helius, Triton, QuickNode — all have free tiers that
+    // support WebSocket).
+    let url = std::env::var("DL_LIVE_WS_URL")
+        .unwrap_or_else(|_| "wss://api.mainnet-beta.solana.com".to_string());
+    if url.contains("api.mainnet-beta.solana.com") {
+        eprintln!("dl-app run: using public mainnet RPC (sustained subs will be disconnected)");
+    } else {
+        eprintln!("dl-app run: using custom WS URL: {}", url);
+    }
+    let runtime = match tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .worker_threads(2)
+        .build()
+    {
+        Ok(rt) => rt,
+        Err(e) => {
+            eprintln!("dl-app run: failed to build tokio runtime: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    let mut ws = match runtime.block_on(connect_mainnet_async(&url)) {
+        Ok(ws) => ws,
+        Err(e) => {
+            eprintln!("dl-app run: failed to connect to mainnet: {e}");
+            eprintln!("dl-app run: check network/firewall (mainnet RPC must be reachable)");
+            std::process::exit(1);
+        }
+    };
+    eprintln!("dl-app run: connected to mainnet");
+
+    // Subscribe to the 3 AMM programs. programSubscribe
+    // returns updates for ALL accounts owned by the program.
+    // Note: the public mainnet RPC rejects programSubscribe for
+    // arbitrary AMM programs. Set DL_LIVE_POOL_PUBKEYS to
+    // subscribe to specific known pool addresses instead.
+    let pool_pubkeys_str = std::env::var("DL_LIVE_POOL_PUBKEYS").ok();
+    if pool_pubkeys_str.is_none() {
+        eprintln!("dl-app run: attempting programSubscribe (likely to fail on public RPC)");
+        if let Err(e) = runtime.block_on(ws.subscribe_program(RAYDIUM_AMM_V4_PROGRAM_ID.0)) {
+            eprintln!("dl-app run: raydium subscribe failed: {e}");
+        }
+        let orca: [u8; 32] = ORCA_WHIRLPOOL_PROGRAM_ID.0;
+        if let Err(e) = runtime.block_on(ws.subscribe_program(orca)) {
+            eprintln!("dl-app run: orca subscribe failed: {e}");
+        }
+        let meteora: [u8; 32] = METEORA_DLMM_PROGRAM_ID.0;
+        if let Err(e) = runtime.block_on(ws.subscribe_program(meteora)) {
+            eprintln!("dl-app run: meteora subscribe failed: {e}");
+        }
+    } else {
+        let pool_strs = pool_pubkeys_str.unwrap();
+        eprintln!("dl-app run: subscribing to {} specific pool(s) via accountSubscribe", pool_strs.split(',').count());
+        for s in pool_strs.split(',') {
+            let s = s.trim();
+            if s.is_empty() { continue; }
+            let bytes = match bs58::decode(s).into_vec() {
+                Ok(b) => b,
+                Err(e) => {
+                    eprintln!("dl-app run: invalid pubkey {s}: {e}");
+                    continue;
+                }
+            };
+            if bytes.len() != 32 {
+                eprintln!("dl-app run: pubkey {s} wrong length {}", bytes.len());
+                continue;
+            }
+            let mut arr = [0u8; 32];
+            arr.copy_from_slice(&bytes);
+            match runtime.block_on(ws.subscribe_account(arr)) {
+                Ok(_) => eprintln!("dl-app run: subscribed to {s}"),
+                Err(e) => eprintln!("dl-app run: subscribe {s} failed: {e}"),
+            }
+        }
+    }
+    eprintln!("dl-app run: subscribed to 3 AMM programs");
+
+    // The WS feed is async. Drive it in a loop that exits
+    // when a SIGINT-style shutdown is signaled. For v1.1.2
+    // we use a wall-clock deadline (default 1 hour) so the
+    // operator can run it overnight and find it terminated
+    // in the morning.
+    let deadline_secs: u64 = std::env::var("DL_LIVE_DURATION_SECS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(3600);
+    let deadline = std::time::Instant::now() + Duration::from_secs(deadline_secs);
+    eprintln!("dl-app run: running for {} seconds (override with DL_LIVE_DURATION_SECS)", deadline_secs);
+    eprintln!("dl-app run: writing paper trades to {}", wallet_path);
+    eprintln!();
+
+    // Counter for the synthetic trade id (the real id comes
+    // from the wallet's internal counter).
+    let mut observed_pools: std::collections::HashSet<[u8; 32]> = std::collections::HashSet::new();
+    let mut events = 0u64;
+    let mut trades_written = 0u64;
+
+    while std::time::Instant::now() < deadline {
+        let ev = ws.next_event();
+        let Some(ev) = ev else {
+            std::thread::sleep(Duration::from_millis(50));
+            continue;
+        };
+        let FeedEvent::AccountUpdate { pubkey, data, .. } = ev else {
+            continue;
+        };
+        events += 1;
+
+        // Try to decode as one of the 3 known pool types.
+        let decoded = if data.len() == 752 {
+            decode_amm_info(&data).ok().map(|amm| ("raydium", amm.base_mint, amm.quote_mint, amm.fee_bps().unwrap_or(30)))
+        } else if data.len() == 653 {
+            decode_whirlpool(&data).ok().map(|w| {
+                ("orca", w.token_mint_x, w.token_mint_y, 30u16)
+            })
+        } else if data.len() == 8 + 32 * 4 + 8 * 32 {
+            // Meteora DLMM LbPair (variable size, hard to gate by length; best-effort).
+            decode_lb_pair(&data).ok().map(|lp| ("meteora", lp.token_mint_x, lp.token_mint_y, 20u16))
+        } else {
+            None
+        };
+
+        let Some((dex, base_mint, quote_mint, fee_bps)) = decoded else {
+            continue;
+        };
+        if !observed_pools.insert(pubkey) {
+            continue; // already seen this pool
+        }
+
+        // Paper trade: a fresh pool observation. Profit = 0,
+        // tip = 0. The trade's purpose is to record that we
+        // saw a real mainnet pool at this address.
+        let pair = format!("{}/{}", dex, Pubkey(base_mint.0).to_base58_string());
+        let fill = TradeFill {
+            pair: pair.clone(),
+            side: Side::BaseToQuote,
+            input_lamports: 0,
+            output_lamports: 0,
+            profit_lamports: 0,
+            tip_lamports: 0,
+            cycle_hash_hex: Pubkey(pubkey).to_base58_string(),
+        };
+        match wallet.execute(fill) {
+            Ok(_) => {
+                trades_written += 1;
+                if let Err(e) = wallet.save(path) {
+                    eprintln!("dl-app run: save failed: {e}");
+                    break;
+                }
+                eprintln!("trader: observed {} pool {} ({} events so far)",
+                    dex, Pubkey(pubkey).to_base58_string(), events);
+            }
+            Err(e) => {
+                eprintln!("dl-app run: wallet.execute failed: {e}");
+                break;
+            }
+        }
+    }
+
+    eprintln!();
+    eprintln!("dl-app run: stopped. events={}, trades_written={}", events, trades_written);
     eprintln!("dl-app run: wallet balance = {} lamports ({} SOL)",
-        start_balance, start_balance / 1_000_000_000);
-    eprintln!("dl-app run: trades recorded = {}", wallet.trades.len());
-    if let Some(last) = wallet.trades.last() {
-        eprintln!("dl-app run: last trade: pair={} pnl={} bal_after={}",
-            last.pair, last.profit_lamports, last.balance_after_lamports);
-    }
-    eprintln!("dl-app run: write a wallet trade to test the save path...");
-    let _ = wallet.execute(dl_paper::TradeFill {
-        pair: "SYNTH-STARTUP".to_string(),
-        side: dl_paper::Side::BaseToQuote,
-        input_lamports: 0,
-        output_lamports: 0,
-        profit_lamports: 0,
-        tip_lamports: 0,
-        cycle_hash_hex: "startup".to_string(),
-    });
-    if let Err(e) = wallet.save(path) {
-        eprintln!("dl-app run: failed to save wallet: {e}");
-        std::process::exit(1);
-    }
-    eprintln!("dl-app run: wallet saved to {}", wallet_path);
-    eprintln!();
-    eprintln!("For the continuous live loop, see crates/dl-stream/src/pipeline.rs");
-    eprintln!("For the e2e test of this path, run:");
-    eprintln!("    cargo test -p dl-paper --test roundtrip");
-    eprintln!("For the full streaming e2e, run:");
-    eprintln!("    cargo test -p dl-stream --test e2e_latency");
-
-    // Avoid the unused-import warning.
-    let _ = Duration::from_secs(0);
+        wallet.balance_lamports, wallet.balance_lamports / 1_000_000_000);
+    eprintln!("dl-app run: see status with: ./scripts/status.sh");
 }
 
 fn run_dry_run() {

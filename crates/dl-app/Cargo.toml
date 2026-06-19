@@ -1,12 +1,13 @@
 [package]
 name = "dl-app"
 version.workspace = true
-edition.workspace = true
+edition = "2021"
 license.workspace = true
 
 [[bin]]
 name = "dl-app"
 path = "src/main.rs"
+edition = "2021"
 
 [dependencies]
 dl-core.workspace = true
