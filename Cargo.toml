@@ -13,6 +13,7 @@ members = [
     "crates/dl-signer",
     "crates/dl-executor",
     "crates/dl-stream",
+    "crates/dl-paper",
 ]
 
 [workspace.package]
@@ -44,6 +45,7 @@ dl-recon-overfit = { path = "crates/dl-recon-overfit", version = "0.0.0" }
 dl-signer = { path = "crates/dl-signer", version = "0.0.0" }
 dl-executor = { path = "crates/dl-executor", version = "0.0.0" }
 dl-stream = { path = "crates/dl-stream", version = "0.0.0" }
+dl-paper = { path = "crates/dl-paper", version = "0.0.0" }
 
 [profile.release]
 lto = "thin"

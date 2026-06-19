@@ -271,6 +271,7 @@ dependencies = [
  "dl-executor",
  "dl-feed",
  "dl-ledger",
+ "dl-paper",
  "dl-recon",
  "dl-recon-overfit",
  "dl-signer",
@@ -348,6 +349,20 @@ dependencies = [
  "dl-state",
  "proptest",
  "serde",
+ "tracing",
+]
+
+[[package]]
+name = "dl-paper"
+version = "0.0.0"
+dependencies = [
+ "chrono",
+ "dl-core",
+ "dl-sim",
+ "dl-state",
+ "serde",
+ "serde_json",
+ "thiserror",
  "tracing",
 ]
 

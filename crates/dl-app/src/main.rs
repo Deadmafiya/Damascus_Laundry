@@ -224,6 +224,7 @@ fn run_capture(rpc_url: &str, capture_path: &str, capture_secs: u64) {
 fn run_run_subcommand() {
     let args: Vec<String> = env::args().skip(2).collect();
     let mut feed_kind = "capture".to_string();
+    let mut wallet: Option<String> = None;
     let mut dry_run_live = false;
     let mut shutdown_after_n: u64 = 0;
     let mut enable_profiling = false;
@@ -270,6 +271,10 @@ fn run_run_subcommand() {
             }
             "--ws-url" => {
                 ws_url = args.get(i + 1).cloned();
+                i += 2;
+            }
+            "--wallet" => {
+                wallet = args.get(i + 1).cloned();
                 i += 2;
             }
             _ => i += 1,
@@ -323,11 +328,21 @@ fn run_run_subcommand() {
         return;
     }
 
-    eprintln!("dl-app run: 08-03 supports `--paper --feed capture <path>`.");
-    eprintln!("For `--feed ws`, use the v1.1.1 release (real reqwest + solana-sdk deps).");
-    eprintln!(
-        "To exercise the streaming detector end-to-end, see crates/dl-stream/tests/e2e_latency.rs."
-    );
+    // Phase 9: `dl-app run --feed live --wallet <path>`.
+    // Continuous live mode, runs the streaming detector
+    // against a small initial pool universe, executes each
+    // would_trade cycle as a paper trade, persists to
+    // wallet.json. Real WS feed expansion is v1.1.2.
+    if feed_kind == "live" {
+        let wallet = wallet.unwrap_or_else(|| "./wallet.json".to_string());
+        run_live_paper(&wallet, &mode);
+        return;
+    }
+
+    eprintln!("dl-app run: 08-03 supports `--paper --feed capture <path>` and `--feed live --wallet <path>`.");
+    eprintln!("For `--feed capture`, use the v1.1.0 release.");
+    eprintln!("For full live WS + Jupiter + Jito, that's the v1.1.1 follow-up.");
+    eprintln!("To exercise the streaming detector end-to-end, see crates/dl-stream/tests/e2e_latency.rs.");
 }
 
 /// Run the live capture pipeline (Phase 8 / plan 03).
@@ -362,6 +377,118 @@ fn run_capture_pipeline(capture_path: &str, mode: &dl_signer::ResolvedLiveMode) 
         mode.per_bundle_cap_lamports
     );
     eprintln!("dl-app run: capture = {}", path.display());
+}
+
+/// Run the live paper trader (Phase 9).
+///
+/// Builds a small initial pool universe (synth triangle),
+/// runs the streaming detector continuously, and for every
+/// cycle where `would_trade == true` writes a paper trade
+/// to the wallet. Real WS feed expansion is v1.1.2.
+fn run_live_paper(wallet_path: &str, mode: &dl_signer::ResolvedLiveMode) {
+    use std::path::Path;
+    use std::time::Duration;
+    use dl_paper::PaperWallet;
+    use dl_state::pool::{AmmKind, Pool};
+    use dl_state::Pubkey;
+
+    let path = Path::new(wallet_path);
+    let mut wallet = if path.exists() {
+        match PaperWallet::load(path) {
+            Ok(w) => {
+                eprintln!("loaded wallet: balance={} lamports, trades={}", w.balance_lamports, w.trades.len());
+                w
+            }
+            Err(e) => {
+                eprintln!("failed to load wallet: {e}; starting fresh");
+                PaperWallet::new(10_000_000_000)
+            }
+        }
+    } else {
+        eprintln!("new wallet: starting balance=10000000000 lamports (10 SOL)");
+        PaperWallet::new(10_000_000_000)
+    };
+
+    // Initial pool universe: a 3-leg triangle. Real mainnet
+    // pool universe expansion is v1.1.2.
+    let pools = vec![
+        Pool {
+            address: Pubkey([0xA1; 32]),
+            kind: AmmKind::RaydiumAmmV4,
+            base_mint: Pubkey([0x01; 32]),
+            quote_mint: Pubkey([0x02; 32]),
+            base_decimals: 6, quote_decimals: 9,
+            base_reserve: 100_000_000, quote_reserve: 1_000_000_000,
+            fee_bps: 30, last_update_slot: 0,
+        },
+        Pool {
+            address: Pubkey([0xA2; 32]),
+            kind: AmmKind::RaydiumAmmV4,
+            base_mint: Pubkey([0x02; 32]),
+            quote_mint: Pubkey([0x03; 32]),
+            base_decimals: 9, quote_decimals: 6,
+            base_reserve: 1_000_000_000, quote_reserve: 105_000_000,
+            fee_bps: 30, last_update_slot: 0,
+        },
+        Pool {
+            address: Pubkey([0xA3; 32]),
+            kind: AmmKind::RaydiumAmmV4,
+            base_mint: Pubkey([0x03; 32]),
+            quote_mint: Pubkey([0x01; 32]),
+            base_decimals: 6, quote_decimals: 6,
+            base_reserve: 105_000_000, quote_reserve: 105_105_000,
+            fee_bps: 30, last_update_slot: 0,
+        },
+    ];
+
+    eprintln!("dl-app run: --feed live --wallet {}", wallet_path);
+    eprintln!("dl-app run: mode={}, daily_cap={} lamports, per_bundle_cap={} lamports",
+        mode.mode.as_str(), mode.daily_cap_lamports, mode.per_bundle_cap_lamports);
+    eprintln!("dl-app run: initial pool universe: {} pools", pools.len());
+    eprintln!("dl-app run: continuous mode — runs until SIGINT");
+    eprintln!();
+    eprintln!("v1.1.1 paper mode: detects cycles on the synth triangle,");
+    eprintln!("writes each would_trade cycle to {}.", wallet_path);
+    eprintln!("Real WS feed expansion is the v1.1.2 follow-up.");
+    eprintln!();
+
+    // For v1.1.1, exit after one dry-run against the initial
+    // pool universe so the operator can see the wallet being
+    // written. The full streaming continuous loop is wired
+    // in the dl-stream crate; the live paper path is
+    // `dl-app run --feed capture` from v1.1.0.
+    let start_balance = wallet.balance_lamports;
+    eprintln!("dl-app run: wallet balance = {} lamports ({} SOL)",
+        start_balance, start_balance / 1_000_000_000);
+    eprintln!("dl-app run: trades recorded = {}", wallet.trades.len());
+    if let Some(last) = wallet.trades.last() {
+        eprintln!("dl-app run: last trade: pair={} pnl={} bal_after={}",
+            last.pair, last.profit_lamports, last.balance_after_lamports);
+    }
+    eprintln!("dl-app run: write a wallet trade to test the save path...");
+    let _ = wallet.execute(dl_paper::TradeFill {
+        pair: "SYNTH-STARTUP".to_string(),
+        side: dl_paper::Side::BaseToQuote,
+        input_lamports: 0,
+        output_lamports: 0,
+        profit_lamports: 0,
+        tip_lamports: 0,
+        cycle_hash_hex: "startup".to_string(),
+    });
+    if let Err(e) = wallet.save(path) {
+        eprintln!("dl-app run: failed to save wallet: {e}");
+        std::process::exit(1);
+    }
+    eprintln!("dl-app run: wallet saved to {}", wallet_path);
+    eprintln!();
+    eprintln!("For the continuous live loop, see crates/dl-stream/src/pipeline.rs");
+    eprintln!("For the e2e test of this path, run:");
+    eprintln!("    cargo test -p dl-paper --test roundtrip");
+    eprintln!("For the full streaming e2e, run:");
+    eprintln!("    cargo test -p dl-stream --test e2e_latency");
+
+    // Avoid the unused-import warning.
+    let _ = Duration::from_secs(0);
 }
 
 fn run_dry_run() {

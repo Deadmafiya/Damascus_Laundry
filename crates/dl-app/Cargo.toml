@@ -19,6 +19,7 @@ dl-recon.workspace = true
 dl-signer.workspace = true
 dl-executor.workspace = true
 dl-stream.workspace = true
+dl-paper.workspace = true
 dl-recon-overfit.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
