@@ -803,6 +803,11 @@ fn evaluate_and_write_cycles(
             tip_lamports: 10_000,
             cycle_hash_hex: format!("{:?}", cycle),
         };
+        // Snapshot the values we need for jsonl BEFORE
+        // wallet.execute() moves `fill`.
+        let cycle_hash_hex_snapshot = fill.cycle_hash_hex.clone();
+        let input_lamports_snapshot = fill.input_lamports;
+        let output_lamports_snapshot = fill.output_lamports;
         match wallet.execute(fill) {
             Ok(_) => {
                 *trades_written += 1;
@@ -810,11 +815,65 @@ fn evaluate_and_write_cycles(
                     eprintln!("dl-app run: save failed: {e}");
                     break;
                 }
+                // Append the cycle to cycles.jsonl for the
+                // ArbiNexus bridge. One JSON object per line.
+                append_cycle_jsonl(
+                    path,
+                    &cycle,
+                    &cycle_hash_hex_snapshot,
+                    input_lamports_snapshot,
+                    output_lamports_snapshot,
+                );
             }
             Err(e) => {
                 eprintln!("dl-app run: wallet.execute failed: {e}");
                 break;
             }
+        }
+    }
+}
+
+/// Append a single detected cycle to `cycles.jsonl` next to
+/// the wallet file. The ArbiNexus bridge reads this file and
+/// applies oracle + tip modeling.
+fn append_cycle_jsonl(
+    wallet_path: &std::path::Path,
+    cycle: &dl_state::cycle::Cycle,
+    cycle_hash_hex: &str,
+    input_lamports: u64,
+    output_lamports: u64,
+) {
+    let jsonl_path = wallet_path.with_extension("cycles.jsonl");
+    // Synthesize a CycleRecord from what we have. The bridge
+    // only needs base/quote mint and gross_bps.
+    let legs = &cycle.legs;
+    let base_mint = if legs.is_empty() { "" } else { "unknown" };
+    let quote_mint = if legs.is_empty() { "" } else { "unknown" };
+    let dex = "raydium"; // single-DEX paper mode in v1.1.5
+    let gross_bps = if output_lamports > input_lamports {
+        ((((output_lamports - input_lamports) as u128) * 10_000)
+            / (input_lamports as u128).max(1)) as i64
+    } else {
+        0
+    };
+    let record = serde_json::json!({
+        "pool_address": cycle_hash_hex,
+        "dex": dex,
+        "base_mint": base_mint,
+        "quote_mint": quote_mint,
+        "gross_bps": gross_bps,
+        "fee_bps": 30, // Raydium AMM v4 default fee
+        "detected_at_unix_ms": chrono::Utc::now().timestamp_millis(),
+    });
+    let line = format!("{}\n", record);
+    use std::io::Write;
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&jsonl_path)
+    {
+        if let Err(e) = f.write_all(line.as_bytes()) {
+            eprintln!("dl-app run: cycles.jsonl write failed: {e}");
         }
     }
 }

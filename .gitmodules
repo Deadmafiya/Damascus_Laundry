@@ -1,0 +1,3 @@
+[submodule "vendor/arbinexus"]
+	path = vendor/arbinexus
+	url = https://github.com/rigocrypto/arbinexus
