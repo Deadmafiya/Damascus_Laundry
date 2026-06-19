@@ -12,18 +12,18 @@ See: .paul/PROJECT.md (updated 2026-06-17)
 
 **Core value:** Reliable, honest profitability estimation — count profit only after
 latency, competition, landing probability, and fees are modeled pessimistically.
-**Current focus:** v1.0 Accurate Paper-Trading Engine — Phase 7 plan 02 (APPLIED, TAGGED v1.0.0)
+**Current focus:** v1.1.0 Live Execution — Phase 8 plan 01 (APPLIED, TAGGED v1.1.0-executor)
 
 ## Current Position
 
-Milestone: v1.0 Accurate Paper-Trading Engine (v1.0.0 — **TAGGED**)
-Phase: 7 of 7 (Observability + Hardening) — Plan 02 APPLIED
-Status: v1.0.0 tag cut. Multi-DEX (Raydium + Orca + Meteora), Prometheus metrics, reproduce_paper_pnl.sh, v3 paper ledger with tip + percentiles, Deflated Sharpe / PBO overfitting defense. 360 tests passing. Build hash SHA-256: 88b00ac9d7f7cb54ecce1d22322cef2495f4da3d17153c6fad62114ac503433a.
-Last activity: 2026-06-19 — Applied Phase 7 / plan 02, cut v1.0.0 tag
+Milestone: v1.1.0 Live Execution (in progress; v1.0.0 TAGGED, v1.1.0-executor TAGGED)
+Phase: 8 of 8 (Live Execution) — Plan 01 APPLIED
+Status: v1.1.0-executor sub-tag cut. Paper-mode executor + hot-wallet signer shipped; tip modeling closed. 403 tests passing (was 360 at v1.0.0, +43 in 08-01). User feedback #1 ("tip modeling is a no-op") CLOSED.
+Last activity: 2026-06-19 — Applied Phase 8 / plan 01, tagged v1.1.0-executor
 
 Progress:
-- Milestone: [██████████] 100% (v1.0.0 TAGGED)
-- Phase 7: [██████████] 2/2 applied, 0/2 planned
+- Milestone: [██████████] 100% for v1.0.0; [██░░░░░░░░] 20% for v1.1.0 (08-01 of 08-03 done)
+- Phase 8: [███░░░░░░░] 1/3 applied (08-01 done, 08-02 and 08-03 planned)
 
 ## Loop Position
 

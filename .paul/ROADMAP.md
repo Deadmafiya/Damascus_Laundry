@@ -215,6 +215,29 @@ config-driven params, multi-pool/multi-DEX scale-up. (Ships v1.0.)
   be committed before 07-02 starts; the doc covers Orca and
   Meteora SDK source links and the Prometheus-vs-OTel choice.
 
+- [x] **08-01 APPLIED** (`.paul/phases/08-live-execution/08-01-PLAN.md`):
+  Paper-mode executor (`dl-executor` crate: bundle assembly,
+  Jupiter mock, Jito mock, tip math) + hot-wallet signer
+  (`dl-signer` crate: AES-256-GCM + Argon2id keyfile, daily +
+  per-bundle cap, token-bucket rate limit) + per-cycle tip
+  modeling in `dl-sim::ev` (closes the user's top feedback
+  that the conservative bound was a no-op). Tagged
+  `v1.1.0-executor`. 403 tests passing (was 360 at v1.0.0, +43
+  in 08-01).
+- [ ] 08-02: Streaming detector (`dl-stream` crate) + real
+  `reqwest` + `solana-sdk` + `jito-bundle` deps + latency
+  benchmark + `dl-app run --feed ws`. Tagged `v1.1.0-streaming`.
+- [ ] 08-03: Devnet gate + mainnet-paper gate (0.001 SOL cap) +
+  mainnet production gate (5 SOL cap, 7-day validation) + final
+  `v1.1.0` tag.
+
+**Goal:** Close the gap from paper-trading simulator to
+millisecond-scale live trader on Solana mainnet. The user's
+top-priority feedback ("tip modeling is a no-op") was closed
+in 08-01. The next priorities (per the user) are: real anchor
+data (live Jito API pull), multi-tick Orca fill math, and metrics
+emission sites in lower crates.
+
 ---
 *Roadmap created: 2026-06-17*
 *Last updated: 2026-06-18 (Phase 5 COMPLETE — 05-01 EV core + 05-02 paper ledger; new dl-ledger crate (DLD-LDG1 schema v2, 7 src files, 3 test files, 41 new tests); 211 tests pass; 5 float-free guards; dl-app wiring deferred to phase 6/7)*
