@@ -117,6 +117,30 @@ impl StreamingGraph {
         true
     }
 
+    /// Add a new pool to the graph. Returns `true` if added,
+    /// `false` if it was already known.
+    /// Used by the live trader when a new pool is discovered
+    /// via accountSubscribe.
+    pub fn add_pool(&mut self, pool: &Pool) -> bool {
+        let key = pool_key(pool.address);
+        if self.pool_to_edges.contains_key(&key) {
+            return false;
+        }
+        // Build a single-pool graph and merge its edges into ours.
+        let single = match dl_detect::graph::build_from_pools(&[pool.clone()]) {
+            Ok(g) => g,
+            Err(_) => return false,
+        };
+        let mut added = Vec::with_capacity(single.edges.len());
+        for e in single.edges {
+            let idx = self.graph.edges.len();
+            self.graph.edges.push(e);
+            added.push(idx);
+        }
+        self.pool_to_edges.insert(key, added);
+        true
+    }
+
     /// Detect negative cycles using the current graph state.
     pub fn detect(&self) -> Vec<Cycle> {
         // For 08-02 we use Bellman-Ford over the *current* graph
@@ -162,12 +186,14 @@ impl StreamingDetector {
     }
 
     /// Apply a pool update. Returns any cycles detected after the
-    /// update.
+    /// update. New pools are added to the graph automatically
+    /// (used by the live trader when discovering pools via WS).
     pub fn on_pool_update(&mut self, pool: &Pool) -> Vec<Cycle> {
-        let _ = self.graph.update_pool(pool);
-        // v1.2 will use incremental Bellman-Ford to avoid the
-        // full O(V*E) per update. For 08-02 we accept the cost
-        // for a small synth triangle.
+        let known = self.graph.update_pool(pool);
+        if !known {
+            self.graph.add_pool(pool);
+            self.graph.update_pool(pool);
+        }
         self.graph.detect()
     }
 
