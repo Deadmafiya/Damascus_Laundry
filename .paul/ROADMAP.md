@@ -231,9 +231,16 @@ config-driven params, multi-pool/multi-DEX scale-up. (Ships v1.0.)
   `v1.1.0-streaming`. 417 tests passing (was 403 at
   v1.1.0-executor, +14 dl-stream lib + 2 e2e latency = +16
   in 08-02).
-- [ ] 08-03: Devnet gate + mainnet-paper gate (0.001 SOL cap) +
-  mainnet production gate (5 SOL cap, 7-day validation) + final
-  `v1.1.0` tag.
+- [x] **08-03 APPLIED** (`.paul/phases/08-live-execution/08-03-SUMMARY.md`):
+  LiveMode gate (Refused / Devnet / MainnetPaper /
+  Mainnet, hard-coded 0.001 SOL floor for MainnetPaper) +
+  dl-signer CLI binary (`generate` / `verify` / `drain-to`)
+  + SIGINT graceful shutdown via `AtomicBool` +
+  `dl-app run` refused-by-default subcommand.
+  Tagged `v1.1.0-live` and final `v1.1.0`. 428 tests
+  passing (was 417 at v1.1.0-streaming, +11 in 08-03).
+  The 7-day mainnet production gate is the operator's
+  responsibility per `docs/v1.1.md` runbook.
 
 **Goal:** Close the gap from paper-trading simulator to
 millisecond-scale live trader on Solana mainnet. The user's

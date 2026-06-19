@@ -12,18 +12,18 @@ See: .paul/PROJECT.md (updated 2026-06-17)
 
 **Core value:** Reliable, honest profitability estimation — count profit only after
 latency, competition, landing probability, and fees are modeled pessimistically.
-**Current focus:** v1.1.0 Live Execution — Phase 8 plan 02 (APPLIED, TAGGED v1.1.0-streaming)
+**Current focus:** v1.1.0 Live Execution — Phase 8 plan 03 (APPLIED, TAGGED v1.1.0)
 
 ## Current Position
 
-Milestone: v1.1.0 Live Execution (in progress; v1.0.0 TAGGED, v1.1.0-executor TAGGED, v1.1.0-streaming TAGGED)
-Phase: 8 of 8 (Live Execution) — Plan 02 APPLIED
-Status: v1.1.0-streaming sub-tag cut. Streaming detector (dl-stream crate) and latency benchmark (p99 < 80ms) landed. 417 tests passing (was 360 at v1.0.0, +57 since v1.0). User feedback #1 (tip modeling) CLOSED in 08-01.
-Last activity: 2026-06-19 — Applied Phase 8 / plan 02, tagged v1.1.0-streaming
+Milestone: v1.1.0 Live Execution (COMPLETE; v1.0.0 + v1.1.0-executor + v1.1.0-streaming + v1.1.0-live + v1.1.0 TAGGED)
+Phase: 8 of 8 (Live Execution) — Plan 03 APPLIED, ALL sub-plans DONE
+Status: v1.1.0 TAGGED. LiveMode gate refuses by default; dl-signer CLI (generate/verify/drain-to) operational; SIGINT graceful shutdown wired. 428 tests passing (was 360 at v1.0.0, +68 in v1.1.0). User feedback #1 (tip modeling) CLOSED in 08-01. The 7-day mainnet production gate is the operator's responsibility per docs/v1.1.md runbook.
+Last activity: 2026-06-19 — Applied Phase 8 / plan 03, tagged v1.1.0-live and v1.1.0
 
 Progress:
-- Milestone: [██████████] 100% for v1.0.0; [█████░░░░░] 50% for v1.1.0 (08-01 + 08-02 done, 08-03 pending)
-- Phase 8: [███████░░░] 2/3 applied (08-01 + 08-02 done, 08-03 pending)
+- Milestone: [██████████] 100% for v1.1.0 (sub-tags cut; production gate is operator handoff)
+- Phase 8: [██████████] 3/3 applied (08-01, 08-02, 08-03 all DONE)
 
 ## Loop Position
 
