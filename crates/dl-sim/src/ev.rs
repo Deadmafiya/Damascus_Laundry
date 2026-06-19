@@ -373,6 +373,8 @@ pub struct ExpectedValue {
     pub p_land: Prob,
     /// The expected failed-attempt cost subtracted (lamports).
     pub expected_failed_cost: u128,
+    /// The per-cycle tip subtracted (lamports, v1.1+).
+    pub tip_lamports: u64,
 }
 
 /// One full assumption set for an EV evaluation.
@@ -388,6 +390,12 @@ pub struct EvalParams {
     pub landing: LandingParams,
     /// Failed-attempt cost model.
     pub failed: FailedCostModel,
+    /// Per-cycle Jito tip in lamports (v1.1+; the user's bid in the bundle
+    /// auction). Subtracted from the conservative bound because the tip
+    /// is paid on every landed bundle, whether the trade was net
+    /// profitable or not. v1.0 default: 0 (paper mode; the live
+    /// executor sets this in 08-01).
+    pub tip_lamports: u64,
 }
 
 impl EvalParams {
@@ -400,6 +408,7 @@ impl EvalParams {
             latency: LatencyBudget::optimistic(),
             landing: LandingParams::optimistic(),
             failed: FailedCostModel::optimistic(),
+            tip_lamports: 0,
         }
     }
 
@@ -413,6 +422,21 @@ impl EvalParams {
             latency: LatencyBudget::conservative_default(),
             landing: LandingParams::conservative_default(),
             failed: FailedCostModel::conservative_spam(),
+            // v1.0 default: 0. The live executor (08-01) overrides this
+            // via `EngineConfig::DL_TIP_LAMPORTS` to model the
+            // per-cycle tip cost the user actually pays. Until
+            // 08-01 lands, the conservative bound is honest about
+            // being a *ceiling* — not a prediction of live PnL.
+            tip_lamports: 0,
+        }
+    }
+
+    /// Construct a `conservative_default` with a non-zero tip. Used by
+    /// the live executor in 08-01.
+    pub fn conservative_default_with_tip(tip_lamports: u64) -> Self {
+        Self {
+            tip_lamports,
+            ..Self::conservative_default()
         }
     }
 }
@@ -438,15 +462,33 @@ fn evaluate_one(net: &NetProfit, params: &EvalParams) -> ExpectedValue {
     // A losing cycle (net < 0) stays non-positive: apply_to keeps the sign,
     // and subtracting a non-negative failed cost only lowers it further.
     let haircut_pnl = haircut.apply_to(net.net_profit);
-    let failed = params.failed.expected_failed_cost();
-    let e_pnl = haircut_pnl - (failed as i128);
+    let failed_cost = params.failed.expected_failed_cost();
+    let after_failed = haircut_pnl.saturating_sub(failed_cost as i128);
+
+    // v1.1+ per-cycle tip. The tip is paid on every landed bundle, so
+    // we model it as a constant per-cycle cost subtracted from the
+    // conservative bound. The optimistic bound does NOT pay tip
+    // (matches the v1.0 semantics: the optimistic bound is a
+    // "naive backtest ceiling" with no execution costs at all).
+    // This asymmetry is intentional: the gap between the two bounds
+    let after_tip = if params.tip_lamports > 0 {
+        // Subtract tip proportional to the land probability. We pay
+        // tip only on the bundles that actually land; if p_land is 0,
+        // we pay nothing.
+        let tip_cost =
+            ((params.tip_lamports as u128) * haircut.scaled()) / 1_000_000_000_000_000_000;
+        after_failed.saturating_sub(tip_cost as i128)
+    } else {
+        after_failed
+    };
 
     ExpectedValue {
-        e_pnl,
+        e_pnl: after_tip,
         p_detect: params.p_detect,
         p_win: pw,
         p_land: pl,
-        expected_failed_cost: failed,
+        expected_failed_cost: failed_cost,
+        tip_lamports: params.tip_lamports,
     }
 }
 
@@ -642,5 +684,72 @@ mod tests {
             &EvalParams::conservative_default(),
         );
         assert_eq!(a, b);
+    }
+
+    // ===== v1.1+ tip modeling tests (08-01) =====
+
+    fn arb_net_profit(net: i128) -> NetProfit {
+        net_with(net, 10, 200_000_000)
+    }
+
+    #[test]
+    fn tip_zero_matches_pre_tip_behavior() {
+        // With tip=0 the conservative bound must match the v1.0
+        // behavior exactly. This is the regression test for
+        // backwards compatibility.
+        let net = arb_net_profit(10_000_000);
+        let pre = evaluate(
+            &net,
+            &EvalParams::optimistic(),
+            &EvalParams::conservative_default(),
+        );
+        let post = evaluate(
+            &net,
+            &EvalParams::optimistic(),
+            &EvalParams::conservative_default_with_tip(0),
+        );
+        assert_eq!(
+            pre.conservative.e_pnl, post.conservative.e_pnl,
+            "tip_lamports=0 must match pre-08-01 behavior"
+        );
+        assert_eq!(post.conservative.tip_lamports, 0);
+    }
+
+    #[test]
+    fn tip_subtracts_from_conservative_bound() {
+        let net = arb_net_profit(100_000_000);
+        let low_tip = evaluate(
+            &net,
+            &EvalParams::optimistic(),
+            &EvalParams::conservative_default_with_tip(10_000),
+        );
+        let high_tip = evaluate(
+            &net,
+            &EvalParams::optimistic(),
+            &EvalParams::conservative_default_with_tip(10_000_000),
+        );
+        assert!(
+            high_tip.conservative.e_pnl < low_tip.conservative.e_pnl,
+            "high tip ({}) should lower conservative e_pnl more than low tip ({})",
+            high_tip.conservative.e_pnl,
+            low_tip.conservative.e_pnl,
+        );
+        assert_eq!(low_tip.conservative.tip_lamports, 10_000);
+        assert_eq!(high_tip.conservative.tip_lamports, 10_000_000);
+    }
+
+    #[test]
+    fn tip_does_not_affect_optimistic_bound() {
+        let net = arb_net_profit(50_000_000);
+        let pre = evaluate(&net, &EvalParams::optimistic(), &EvalParams::optimistic());
+        let post_ot = EvalParams {
+            tip_lamports: 10_000_000,
+            ..EvalParams::optimistic()
+        };
+        let post = evaluate(&net, &EvalParams::optimistic(), &post_ot);
+        assert_eq!(
+            pre.optimistic.e_pnl, post.optimistic.e_pnl,
+            "optimistic bound must be unaffected by tip"
+        );
     }
 }

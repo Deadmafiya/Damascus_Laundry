@@ -10,6 +10,9 @@ members = [
     "crates/dl-app",
     "crates/dl-recon",
     "crates/dl-recon-overfit",
+    "crates/dl-signer",
+    "crates/dl-executor",
+    "crates/dl-stream",
 ]
 
 [workspace.package]
@@ -29,14 +32,18 @@ bincode = "1"
 thiserror = "1"
 
 # Internal crates
-dl-core = { path = "crates/dl-core" }
-dl-feed = { path = "crates/dl-feed" }
-dl-state = { path = "crates/dl-state" }
-dl-detect = { path = "crates/dl-detect" }
-dl-sim = { path = "crates/dl-sim" }
-dl-ledger = { path = "crates/dl-ledger" }
-dl-recon = { path = "crates/dl-recon" }
-dl-recon-overfit = { path = "crates/dl-recon-overfit" }
+dl-core = { path = "crates/dl-core", version = "0.0.0" }
+dl-feed = { path = "crates/dl-feed", version = "0.0.0" }
+dl-state = { path = "crates/dl-state", version = "0.0.0" }
+dl-detect = { path = "crates/dl-detect", version = "0.0.0" }
+dl-sim = { path = "crates/dl-sim", version = "0.0.0" }
+dl-ledger = { path = "crates/dl-ledger", version = "0.0.0" }
+dl-app = { path = "crates/dl-app", version = "0.0.0" }
+dl-recon = { path = "crates/dl-recon", version = "0.0.0" }
+dl-recon-overfit = { path = "crates/dl-recon-overfit", version = "0.0.0" }
+dl-signer = { path = "crates/dl-signer", version = "0.0.0" }
+dl-executor = { path = "crates/dl-executor", version = "0.0.0" }
+dl-stream = { path = "crates/dl-stream", version = "0.0.0" }
 
 [profile.release]
 lto = "thin"

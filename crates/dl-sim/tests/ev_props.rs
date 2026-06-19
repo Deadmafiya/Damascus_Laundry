@@ -113,6 +113,7 @@ fn arb_eval_params() -> impl Strategy<Value = EvalParams> {
                 latency,
                 landing,
                 failed,
+                tip_lamports: 0,
             },
         )
 }

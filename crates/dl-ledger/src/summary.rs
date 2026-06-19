@@ -143,6 +143,7 @@ mod tests {
             p_win: Prob::from_scaled_clamped(PROB_SCALE_1E18),
             p_land: Prob::from_scaled_clamped(PROB_SCALE_1E18),
             expected_failed_cost: 0,
+            tip_lamports: 0,
         }
     }
 

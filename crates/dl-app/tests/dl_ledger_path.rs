@@ -101,6 +101,7 @@ fn dummy_entry(seq: u64, would_trade: bool) -> LedgerEntry {
         p_win: Prob::from_scaled_clamped(PROB_SCALE_1E18),
         p_land: Prob::from_scaled_clamped(PROB_SCALE_1E18),
         expected_failed_cost: 0,
+        tip_lamports: 0,
     };
     LedgerEntry {
         seq,
@@ -153,6 +154,7 @@ fn known_entry() -> LedgerEntry {
         p_win: Prob::from_scaled_clamped(PROB_SCALE_1E18),
         p_land: Prob::from_scaled_clamped(PROB_SCALE_1E18),
         expected_failed_cost: 0,
+        tip_lamports: 0,
     };
     let outcome = EvalOutcome {
         optimistic: ev.clone(),

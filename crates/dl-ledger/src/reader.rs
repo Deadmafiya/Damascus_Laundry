@@ -130,6 +130,7 @@ mod tests {
                 p_win: dl_sim::ev::Prob::from_scaled_clamped(1_000_000_000_000_000_000),
                 p_land: dl_sim::ev::Prob::from_scaled_clamped(1_000_000_000_000_000_000),
                 expected_failed_cost: 0,
+                tip_lamports: 0,
             },
             conservative: dl_sim::ev::ExpectedValue {
                 e_pnl: 0,
@@ -137,6 +138,7 @@ mod tests {
                 p_win: dl_sim::ev::Prob::from_scaled_clamped(1_000_000_000_000_000_000),
                 p_land: dl_sim::ev::Prob::from_scaled_clamped(1_000_000_000_000_000_000),
                 expected_failed_cost: 0,
+                tip_lamports: 0,
             },
             decision: Decision::WouldNotTrade,
             tip_lamports: 0,

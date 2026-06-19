@@ -89,6 +89,7 @@ fn default_eval_config() -> EvalConfig {
             SubmitPath::Spam => SubmitPathTag::Spam,
             SubmitPath::JitoBundle => SubmitPathTag::JitoBundle,
         },
+        tip_lamports: 0,
     }
 }
 
@@ -134,10 +135,13 @@ pub struct EvalConfig {
     pub p_land_decay_ppm_per_ms: u32,
     /// `FailedCostModel.attempts_per_win`.
     pub failed_attempts_per_win: u32,
-    /// `FailedCostModel.per_attempt_lamports` (spam path: base sig fee).
+    /// Failed-attempt cost model.
     pub failed_per_attempt_lamports: u64,
     /// Submit path: `spam` or `jito_bundle`.
     pub submit_path: SubmitPathTag,
+    /// Per-cycle Jito tip in lamports (v1.1+). Subtracted from the
+    /// conservative bound in `EvalParams`. Default 0 (paper mode).
+    pub tip_lamports: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -241,6 +245,7 @@ impl Default for EngineConfig {
                     SubmitPath::Spam => SubmitPathTag::Spam,
                     SubmitPath::JitoBundle => SubmitPathTag::JitoBundle,
                 },
+                tip_lamports: 0,
             },
             cost: CostConfig {
                 n_signatures: u32::from(cm.n_signatures),
@@ -324,6 +329,9 @@ impl EngineConfig {
                 }
             };
         }
+        if let Ok(v) = env::var("DL_TIP_LAMPORTS") {
+            self.eval.tip_lamports = parse_u64("DL_TIP_LAMPORTS", &v)?;
+        }
         if let Ok(v) = env::var("DL_N_SIGNATURES") {
             self.cost.n_signatures = parse_u32("DL_N_SIGNATURES", &v)?;
         }
@@ -404,6 +412,7 @@ impl EngineConfig {
                 per_attempt_lamports: self.eval.failed_per_attempt_lamports,
                 path: self.eval.submit_path.into(),
             },
+            tip_lamports: self.eval.tip_lamports,
         }
     }
 }

@@ -21,7 +21,8 @@ use dl_recon::pipeline::{replay_pools_to_ledger, ReplayParams};
 /// Golden hash for the canonical triangle pool universe.
 ///
 /// 9565092578115491832: v2 schema (06-01).
-/// 9917465376805268376: v3 schema (07-01, +`tip_lamports: u64` per entry).
+/// 1264290122520192152: v4 schema (08-01, +`tip_lamports: u64` per ExpectedValue
+///         within the conservative bound).
 ///
 /// The v3 bump is a known consequence of the DLD-LDG1 v2 → v3
 /// schema change (Phase 7 / plan 01 AC-6). Test fixtures that
@@ -29,7 +30,7 @@ use dl_recon::pipeline::{replay_pools_to_ledger, ReplayParams};
 /// value is current for the active schema.
 #[allow(dead_code)]
 const GOLDEN_HASH_V2: u64 = 9_565_092_578_115_491_832;
-const GOLDEN_HASH_V3_TRIANGLE: u64 = 9_917_465_376_805_268_376;
+const GOLDEN_HASH_V3_TRIANGLE: u64 = 12_642_901_225_201_921_52;
 
 fn specs_triangle() -> Vec<SynthPoolSpec> {
     vec![

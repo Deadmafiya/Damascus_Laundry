@@ -170,6 +170,7 @@ mod tests {
             p_win: dl_sim::ev::Prob::from_scaled_clamped(PROB_SCALE_1E18),
             p_land: dl_sim::ev::Prob::from_scaled_clamped(PROB_SCALE_1E18),
             expected_failed_cost: 0,
+            tip_lamports: 0,
         }
     }
 

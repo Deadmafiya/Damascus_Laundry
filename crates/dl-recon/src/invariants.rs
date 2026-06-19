@@ -226,6 +226,7 @@ fn dummy_entry(seq: u64) -> dl_ledger::LedgerEntry {
         p_win: one,
         p_land: one,
         expected_failed_cost: 0,
+        tip_lamports: 0,
     };
     dl_ledger::LedgerEntry {
         seq,

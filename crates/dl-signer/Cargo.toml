@@ -1,0 +1,19 @@
+[package]
+name = "dl-signer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "dl_signer"
+path = "src/lib.rs"
+
+[dependencies]
+dl-core.workspace = true
+zeroize = { version = "1.7", features = ["zeroize_derive"] }
+aes-gcm = "0.10"
+argon2 = "0.5"
+rand = "0.8"
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+thiserror = "1"
+tracing.workspace = true

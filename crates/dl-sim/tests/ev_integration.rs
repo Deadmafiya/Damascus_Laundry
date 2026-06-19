@@ -116,6 +116,7 @@ fn spam_failed_cost_lowers_conservative_ev() {
             per_attempt_lamports: 5_000,
             path: SubmitPath::Spam,
         },
+        tip_lamports: 0,
     };
     let jito = EvalParams {
         failed: FailedCostModel {

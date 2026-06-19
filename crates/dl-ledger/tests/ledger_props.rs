@@ -35,6 +35,7 @@ fn arb_ev(e_pnl: i128) -> ExpectedValue {
         p_win: one_p(),
         p_land: one_p(),
         expected_failed_cost: 0,
+        tip_lamports: 0,
     }
 }
 
