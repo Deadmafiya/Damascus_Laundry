@@ -581,11 +581,21 @@ fn run_live_paper(wallet_path: &str, mode: &dl_signer::ResolvedLiveMode) {
         .expect("placeholder pool construction must succeed")
     });
 
-    // EvalParams: paper mode uses OPTIMISTIC bounds so the
-    // wallet records every detected cycle as a candidate
-    // trade. The conservative bound (with realistic win-rate
-    // decay) is reserved for live execution in v1.1.5+.
+    // EvalParams: optimistic for paper mode so cycles pass
+    // the conservative bound; realistic_mode applies a 30%
+    // win rate at the trade-write step (losing trades burn
+    // the Jito tip and write a loss to the wallet). This
+    // gives a realistic distribution of PnL without making
+    // 99% of sub-bp cycles invisible.
+    let realistic_mode = env::var("DL_PAPER_MODE")
+        .map(|v| v.eq_ignore_ascii_case("realistic"))
+        .unwrap_or(false);
     let eval_params = EvalParams::optimistic();
+    if realistic_mode {
+        eprintln!("dl-app run: mode=REALISTIC (optimistic bound + 30% random win rate)");
+    } else {
+        eprintln!("dl-app run: mode=OPTIMISTIC (100% win rate — best case, not realistic)");
+    }
 
     let deadline_secs: u64 = std::env::var("DL_LIVE_DURATION_SECS")
         .ok()
@@ -663,8 +673,13 @@ fn run_live_paper(wallet_path: &str, mode: &dl_signer::ResolvedLiveMode) {
                 let cycles = detector.on_pool_update(&pool);
                 cycles_evaluated += cycles.len() as u64;
                 evaluate_and_write_cycles(
-                    cycles, &mut wallet, path, &eval_params,
-                    &mut cycles_evaluated, &mut trades_written,
+                    cycles,
+                    &mut wallet,
+                    path,
+                    &eval_params,
+                    realistic_mode,
+                    &mut cycles_evaluated,
+                    &mut trades_written,
                 );
                 continue;
             }
@@ -701,8 +716,13 @@ fn run_live_paper(wallet_path: &str, mode: &dl_signer::ResolvedLiveMode) {
                         let cycles = detector.on_pool_update(&pool);
                         cycles_evaluated += cycles.len() as u64;
                         evaluate_and_write_cycles(
-                            cycles, &mut wallet, path, &eval_params,
-                            &mut cycles_evaluated, &mut trades_written,
+                            cycles,
+                            &mut wallet,
+                            path,
+                            &eval_params,
+                            realistic_mode,
+                            &mut cycles_evaluated,
+                            &mut trades_written,
                         );
                     }
                     // Persist the updated pool in the map.
@@ -720,8 +740,13 @@ fn run_live_paper(wallet_path: &str, mode: &dl_signer::ResolvedLiveMode) {
         let cycles = detector.on_pool_update(&pool);
         cycles_evaluated += cycles.len() as u64;
         evaluate_and_write_cycles(
-            cycles, &mut wallet, path, &eval_params,
-            &mut cycles_evaluated, &mut trades_written,
+            cycles,
+            &mut wallet,
+            path,
+            &eval_params,
+            realistic_mode,
+            &mut cycles_evaluated,
+            &mut trades_written,
         );
 
         // Throttled status log every 5s.
@@ -754,6 +779,7 @@ fn evaluate_and_write_cycles(
     wallet: &mut dl_paper::PaperWallet,
     path: &std::path::Path,
     eval_params: &dl_sim::ev::EvalParams,
+    realistic_mode: bool,
     cycles_evaluated: &mut u64,
     trades_written: &mut u64,
 ) {
@@ -803,12 +829,25 @@ fn evaluate_and_write_cycles(
             tip_lamports: 10_000,
             cycle_hash_hex: format!("{:?}", cycle),
         };
+        let trade = if realistic_mode && !won_simulated() {
+            dl_paper::TradeFill {
+                pair: fill.pair.clone(),
+                side: fill.side,
+                input_lamports: fill.input_lamports,
+                output_lamports: fill.input_lamports,
+                profit_lamports: -(fill.tip_lamports as i64),
+                tip_lamports: fill.tip_lamports,
+                cycle_hash_hex: fill.cycle_hash_hex.clone(),
+            }
+        } else {
+            fill
+        };
         // Snapshot the values we need for jsonl BEFORE
-        // wallet.execute() moves `fill`.
-        let cycle_hash_hex_snapshot = fill.cycle_hash_hex.clone();
-        let input_lamports_snapshot = fill.input_lamports;
-        let output_lamports_snapshot = fill.output_lamports;
-        match wallet.execute(fill) {
+        // wallet.execute() moves `trade`.
+        let cycle_hash_hex_snapshot = trade.cycle_hash_hex.clone();
+        let input_lamports_snapshot = trade.input_lamports;
+        let output_lamports_snapshot = trade.output_lamports;
+        match wallet.execute(trade) {
             Ok(_) => {
                 *trades_written += 1;
                 if let Err(e) = wallet.save(path) {
@@ -831,6 +870,28 @@ fn evaluate_and_write_cycles(
             }
         }
     }
+}
+
+/// Simulated win/loss for the realistic paper mode. xorshift64
+/// per-thread PRNG so the distribution is roughly uniform but
+/// reproducible per process.
+fn won_simulated() -> bool {
+    use std::cell::Cell;
+    use std::time::{SystemTime, UNIX_EPOCH};
+    thread_local!(static STATE: Cell<u64> = Cell::new({
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos() as u64)
+            .unwrap_or(0)
+    }));
+    STATE.with(|s| {
+        let mut x = s.get();
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        s.set(x);
+        (x % 100) < 30
+    })
 }
 
 /// Append a single detected cycle to `cycles.jsonl` next to
