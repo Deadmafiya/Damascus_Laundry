@@ -3,58 +3,56 @@
 #
 # Usage:  ./scripts/start_paper_trader.sh
 #
-# Pre-conditions:
-#   - DL_LIVE_MODE in {devnet, mainnet-paper, mainnet} (refused by default)
-#   - ./target/release/dl-app exists (build with: cargo build --release -p dl-app)
+# Reads env from ./.env (if present), then starts dl-app run --feed live
+# in background with nohup. Writes a PID file, survives terminal close.
 #
-# Effects:
-#   - Starts dl-app run --feed live --wallet <wallet.json> via nohup
-#   - Writes PID to ./trader.pid
-#   - Logs to ./trader.log
-#   - Survives terminal close
-#
-# Stop with:  kill $(cat trader.pid)
+# Stop with:  kill $(cat ./trader.pid)
 
 set -euo pipefail
 
-: "${DL_LIVE_MODE:?Set DL_LIVE_MODE (devnet, mainnet-paper, or mainnet)}"
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$REPO_ROOT"
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-cd "$SCRIPT_DIR/.."
-
-WALLET="./wallet.json"
-PIDFILE="./trader.pid"
-LOGFILE="./trader.log"
-BINARY="./target/release/dl-app"
-
-if [[ ! -x "$BINARY" ]]; then
-    echo "error: $BINARY not found. Build it first: cargo build --release -p dl-app" >&2
+# Load .env if present (allows inline comments, empty lines, quoted values).
+if [[ -f .env ]]; then
+    set -a
+    # shellcheck disable=SC1091
+    source .env
+    set +a
+elif [[ -f .env.example ]]; then
+    echo "trader: no .env found, copying .env.example as template"
+    cp .env.example .env
+    echo "trader: edit ./.env and re-run this script"
     exit 1
 fi
 
-if [[ -f "$PIDFILE" ]]; then
-    PID=$(cat "$PIDFILE")
-    if kill -0 "$PID" 2>/dev/null; then
-        echo "trader already running with PID $PID"
-        exit 0
-    else
-        echo "stale PID file; removing"
-        rm -f "$PIDFILE"
-    fi
+: "${DL_LIVE_MODE:?DL_LIVE_MODE is required (devnet | mainnet-paper | mainnet)}"
+: "${DL_LIVE_WS_URL:?DL_LIVE_WS_URL is required (e.g. wss://your-quicknode.solana-mainnet.quiknode.pro/<key>/)}"
+: "${DL_LIVE_POOL_PUBKEYS:?DL_LIVE_POOL_PUBKEYS is required (comma-separated mainnet pool addresses)}"
+: "${DL_LIVE_DURATION_SECS:=28800}"
+
+WALLET_PATH="$REPO_ROOT/wallet.json"
+PID_PATH="$REPO_ROOT/trader.pid"
+LOG_PATH="$REPO_ROOT/trader.log"
+
+# Refuse to start if a previous instance is still running.
+if [[ -f $PID_PATH ]] && kill -0 "$(cat $PID_PATH)" 2>/dev/null; then
+    echo "trader: already running (pid $(cat $PID_PATH))"
+    exit 1
 fi
 
-# Seed the wallet if it doesn't exist.
-if [[ ! -f "$WALLET" ]]; then
-    echo "{}" > "$WALLET"
+BINARY="$REPO_ROOT/target/release/dl-app"
+if [[ ! -x $BINARY ]]; then
+    echo "trader: $BINARY not built; running cargo build --release -p dl-app"
+    cargo build --release -p dl-app
 fi
 
-nohup "$BINARY" run --feed live --wallet "$WALLET" \
-    > "$LOGFILE" 2>&1 &
-echo $! > "$PIDFILE"
+# Use setsid + nohup to fully detach from the controlling terminal.
+nohup "$BINARY" run --feed live --wallet "$WALLET_PATH" \
+    > "$LOG_PATH" 2>&1 &
+PID=$!
+echo $PID > "$PID_PATH"
 
-echo "started trader PID $(cat "$PIDFILE")"
-echo "  wallet: $WALLET"
-echo "  log:    $LOGFILE"
-echo
-echo "check status with:  ./scripts/status.sh"
-echo "stop with:          kill \$(cat trader.pid)"
+echo "trader: started (pid $PID, wallet=$WALLET_PATH, log=$LOG_PATH)"
+echo "trader: stop with: kill \$(cat $PID_PATH)"
+echo "trader: see status with: ./scripts/status.sh"
