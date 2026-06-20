@@ -2,6 +2,10 @@
 # Launch the damascus_laundry dashboard in your browser.
 # Usage:  ./damascus_laundry_dashboard_open [--no-browser] [--port N]
 #         (then Ctrl-C to stop the server)
+#
+# The server is `exec`'d in this shell so SIGINT (Ctrl-C) goes
+# directly to the server, not to a wrapper that has to forward
+# it. One process, one PID, one Ctrl-C.
 set -euo pipefail
 REPO="$(cd "$(dirname "$0")" && pwd)"
 PORT="${DL_DASHBOARD_PORT:-8765}"
@@ -14,20 +18,31 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-"${REPO}/damascus_laundry_dashboard" --port "$PORT" --host 127.0.0.1 &
-SERVER_PID=$!
-sleep 1
-
+# Pre-launch the browser on the first request. We do this in
+# parallel with the server starting so the user sees the page
+# as soon as the server is ready.
 URL="http://127.0.0.1:${PORT}/"
-echo "damascus_laundry dashboard: $URL"
-echo "PID: ${SERVER_PID}  (stop with: kill ${SERVER_PID})"
-
 if [[ $OPEN_BROWSER -eq 1 ]]; then
-    if command -v xdg-open >/dev/null 2>&1; then xdg-open "$URL" >/dev/null 2>&1 || true
-    elif command -v open >/dev/null 2>&1; then open "$URL" >/dev/null 2>&1 || true
-    elif command -v firefox >/dev/null 2>&1; then firefox "$URL" >/dev/null 2>&1 &
-    elif command -v google-chrome >/dev/null 2>&1; then google-chrome "$URL" >/dev/null 2>&1 &
-    fi
+    (
+        # Poll the server up to 5s for readiness, then open the browser
+        for i in $(seq 1 50); do
+            if curl -sf --max-time 1 "$URL" >/dev/null 2>&1; then
+                if command -v xdg-open >/dev/null 2>&1; then xdg-open "$URL" >/dev/null 2>&1 || true
+                elif command -v open >/dev/null 2>&1; then open "$URL" >/dev/null 2>&1 || true
+                elif command -v firefox >/dev/null 2>&1; then firefox "$URL" >/dev/null 2>&1 &
+                elif command -v google-chrome >/dev/null 2>&1; then google-chrome "$URL" >/dev/null 2>&1 &
+                fi
+                exit 0
+            fi
+            sleep 0.1
+        done
+    ) &
 fi
 
-wait "$SERVER_PID"
+# exec replaces the shell process with the server, so SIGINT
+# from Ctrl-C is delivered directly to python — no wrapper to
+# forward, no second process to clean up. The PID we print is
+# the server's PID; killing it stops the server.
+echo "damascus_laundry dashboard: $URL"
+echo "Press Ctrl-C to stop."
+exec python3 "${REPO}/damascus_laundry_dashboard" --port "$PORT" --host 127.0.0.1
