@@ -30,6 +30,7 @@ fn make_pool(addr: [u8; 32], base_res: u64, quote_res: u64, fee_bps: u16) -> Poo
         quote_reserve: quote_res,
         fee_bps,
         last_update_slot: 1,
+        ..Default::default()
     }
 }
 

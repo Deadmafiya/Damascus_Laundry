@@ -124,9 +124,24 @@ pub struct SplTokenAccount {
 }
 
 /// Size of a serialized SPL token account (Token, not Token-2022).
+/// Token-2022 accounts are at least 165 bytes; many pools (notably
+/// Orca Whirlpool and Meteora DLMM) use Token-2022 vault accounts
+/// which are larger (typically 234 B for non-frozen, more for accounts
+/// with extensions). Use [`decode_spl_token_account`] on both — the
+/// first 165 bytes are layout-compatible.
 pub const SPL_TOKEN_ACCOUNT_SIZE: usize = 165;
 
-/// Parse a 165-byte SPL token account.
+/// Parse a 165-byte (or larger) SPL token / Token-2022 account.
+///
+/// Reads `mint` (offset 0) and `amount` (offset 64). Both fields are
+/// within the first 72 bytes, so this decoder accepts:
+/// - 165-byte SPL Token accounts (standard).
+/// - 234-byte Token-2022 accounts (extensions appended after offset 165).
+/// - Any larger size that has the mint + amount layout at offsets
+///   0 and 64.
+///
+/// The size check is `>= SPL_TOKEN_ACCOUNT_SIZE` rather than `==`
+/// because Token-2022 vaults are larger.
 pub fn decode_spl_token_account(bytes: &[u8]) -> Result<SplTokenAccount, DecodeError> {
     if bytes.len() < SPL_TOKEN_ACCOUNT_SIZE {
         return Err(DecodeError::TooShort {
@@ -184,6 +199,7 @@ pub fn assemble_pool(
         quote_reserve: pc_vault.amount,
         fee_bps,
         last_update_slot,
+        extras: crate::pool::PoolExtras::Raydium,
     })
 }
 
@@ -281,6 +297,31 @@ mod tests {
             decode_spl_token_account(&bytes),
             Err(DecodeError::TooShort { .. })
         ));
+    }
+
+    /// Token-2022 vault accounts are typically 234 bytes (or larger
+    /// with extensions). The decoder reads only the first 165 bytes
+    /// (mint + amount fields are within the first 72 B), so the
+    /// larger sizes must round-trip identically to the standard 165 B.
+    #[test]
+    fn decode_token_2022_account_at_234_bytes() {
+        let mut bytes = vec![0u8; 234];
+        bytes[0..32].fill(0xAB); // mint
+        bytes[64..72].copy_from_slice(&987_654_321u64.to_le_bytes());
+        // TLV extension area (offsets 165..234) is ignored.
+        let acc = decode_spl_token_account(&bytes).unwrap();
+        assert_eq!(acc.mint.0, [0xAB; 32]);
+        assert_eq!(acc.amount, 987_654_321);
+    }
+
+    #[test]
+    fn decode_token_2022_account_at_exactly_165_bytes() {
+        // 165 B is the boundary between SPL Token (standard) and
+        // Token-2022 (with extensions). Both must decode identically.
+        let bytes = fake_token_account(0xCD, 42_000);
+        let acc = decode_spl_token_account(&bytes).unwrap();
+        assert_eq!(acc.mint.0, [0xCD; 32]);
+        assert_eq!(acc.amount, 42_000);
     }
 
     #[test]

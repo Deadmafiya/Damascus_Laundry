@@ -35,7 +35,7 @@ const EULER_MASCHERONI: f64 = 0.577_215_664_901_532_9;
 pub const MIN_OBSERVATIONS: usize = 30;
 
 /// Result of a Deflated Sharpe Ratio computation.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DeflatedSharpeResult {
     /// Mean of the observed Sharpe ratios.
     pub sr_hat: f64,
@@ -223,7 +223,7 @@ fn sample_excess_kurtosis(xs: &[f64]) -> f64 {
 }
 
 /// Purged walk-forward cross-validation result.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct PurgedCvResult {
     pub n_folds: usize,
     pub embargo_pct: f64,

@@ -86,6 +86,16 @@ impl CapState {
         }
     }
 
+    /// Refund a previously charged amount. Used when a bundle is
+    /// rejected by a downstream safety gate (kill switch, rate
+    /// limit, simulate gate, sign failure) AFTER the cap was
+    /// charged — the bundle never actually paid a tip, so the
+    /// cap should not count it. Saturates at 0 to prevent
+    /// underflow (refunding more than was spent is a no-op).
+    pub fn refund(&mut self, lamports: u64) {
+        self.spent_today = self.spent_today.saturating_sub(lamports);
+    }
+
     /// Lamports remaining in today's cap.
     pub fn remaining(&self) -> u64 {
         self.cfg.daily_lamports.saturating_sub(self.spent_today)

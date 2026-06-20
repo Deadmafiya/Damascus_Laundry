@@ -1,0 +1,22 @@
+[package]
+name = "dl-calibration"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+dl-core.workspace = true
+dl-recon-overfit.workspace = true
+dl-sim.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror = "1"
+tracing.workspace = true
+
+[[bin]]
+name = "dl-calibrate"
+path = "src/bin/calibrate.rs"
+
+[[bin]]
+name = "dl-niches"
+path = "src/bin/niches.rs"

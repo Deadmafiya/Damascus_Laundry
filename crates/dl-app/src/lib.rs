@@ -11,6 +11,7 @@ pub mod error;
 pub mod live;
 pub mod metrics;
 pub mod metrics_prom;
+pub mod opportunity;
 pub mod recon;
 
 /// Initialize structured logging once. Idempotent — calls after the

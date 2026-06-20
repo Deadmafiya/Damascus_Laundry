@@ -39,7 +39,6 @@ use dl_core::prob::{mul_prob, PROB_SCALE_1E18};
 
 use crate::error::SimError;
 use crate::net_profit::NetProfit;
-
 /// Parts-per-million: `1_000_000` ppm == 1.0.
 pub const PPM_ONE: u32 = 1_000_000;
 

@@ -258,6 +258,7 @@ mod tests {
             quote_reserve: qr,
             fee_bps,
             last_update_slot: 1,
+            ..Default::default()
         }
     }
 
@@ -462,6 +463,7 @@ mod tests {
             quote_reserve: 1_000_000_000, // 1 SOL
             fee_bps: 30,
             last_update_slot: 0,
+            ..Default::default()
         };
         // Orca Whirlpool: SOL/USDT. Price-edge of 5% on top
         // of the Raydium 100x for a profitable round-trip.
@@ -478,6 +480,7 @@ mod tests {
             quote_reserve: 105_000_000,  // 105 USDT
             fee_bps: 30,
             last_update_slot: 0,
+            ..Default::default()
         };
         // Meteora DLMM: USDT/USDC. 1.001 USDC = 1 USDT.
         let meteora = Pool {
@@ -491,6 +494,7 @@ mod tests {
             quote_reserve: 1_000_000_000,    // 1M USDC
             fee_bps: 30,
             last_update_slot: 0,
+            ..Default::default()
         };
 
         let g = build_from_pools(&[raydium, orca, meteora]).expect("graph");

@@ -495,6 +495,7 @@ mod tests {
             quote_reserve: quote,
             fee_bps: 30,
             last_update_slot: 1,
+            ..Default::default()
         }
     }
 

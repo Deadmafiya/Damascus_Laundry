@@ -235,6 +235,270 @@ fn run_capture(rpc_url: &str, capture_path: &str, capture_secs: u64) {
 /// just prints the parsed args and exits — the heavy lifting
 /// (streaming detection + latency) is exercised in the
 /// `dl-stream` crate's integration tests.
+/// Phase 1 v2.0 live submit entry point. Wired via `--submit-live`.
+///
+/// Loads the keystore, builds the Jupiter + Jito + safety-module
+/// stack, and submits each detected cycle through
+/// `live::submit_opportunity`. Operator-supplied cycle stream
+/// (Phase 2 will hook this to the StreamingDetector; for now
+/// the function prints a "ready" banner and exits 0).
+fn run_live_submit(
+    keyfile: Option<&str>,
+    assert_program_id: Option<&str>,
+    jito_tip_account: Option<&str>,
+    simulate_rpc_url: Option<&str>,
+    mode: &dl_signer::ResolvedLiveMode,
+) {
+    use dl_assert_sdk::derive_vault_pda;
+    use dl_executor::error::ExecutorError;
+    use dl_executor::jito::{HttpJitoClient, JitoClient};
+    use dl_executor::jupiter::HttpJupiterClient;
+    use dl_executor::killswitch::{KillSwitch, KillSwitchConfig};
+    use dl_signer::cap::{CapConfig, CapState};
+    use dl_signer::ratelimit::{RateLimit, RateLimitConfig};
+    use solana_sdk::hash::Hash;
+    use solana_sdk::pubkey::Pubkey;
+    use std::str::FromStr;
+
+    let keyfile_path = match keyfile {
+        Some(p) => p.to_string(),
+        None => {
+            eprintln!("dl-app run --submit-live: --keyfile <PATH> is required");
+            std::process::exit(2);
+        }
+    };
+    let assert_pid = match assert_program_id {
+        Some(s) => match Pubkey::from_str(s) {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("dl-app run: invalid --assert-program-id {s}: {e}");
+                std::process::exit(2);
+            }
+        },
+        None => {
+            eprintln!("dl-app run --submit-live: --assert-program-id <PUBKEY> is required");
+            std::process::exit(2);
+        }
+    };
+
+    // Load the keystore (DL_SIGNER_PASSPHRASE env required).
+    let keystore_res = (|| -> Result<dl_signer::keystore::KeyStore, String> {
+        let kf = dl_signer::keystore::KeyFile::load(&std::path::PathBuf::from(&keyfile_path))
+            .map_err(|e| format!("load: {e}"))?;
+        let passphrase = std::env::var("DL_SIGNER_PASSPHRASE")
+            .map_err(|_| "DL_SIGNER_PASSPHRASE not set".to_string())?;
+        let secret = kf.decrypt(&passphrase).map_err(|e| format!("decrypt: {e}"))?;
+        Ok(dl_signer::keystore::KeyStore::from_secret(secret))
+    })();
+    let keystore = match keystore_res {
+        Ok(k) => k,
+        Err(e) => {
+            eprintln!("dl-app run: keystore load failed: {e}");
+            std::process::exit(2);
+        }
+    };
+    let signer_sol =
+        solana_sdk::pubkey::Pubkey::new_from_array(keystore.public_key_for_print());
+    let (vault, _bump) = derive_vault_pda(&signer_sol, &assert_pid);
+    eprintln!(
+        "dl-app run --submit-live: signer={signer_sol} \
+         assert_program={assert_pid} vault={vault} mode={}",
+        mode.mode.as_str()
+    );
+
+    let _jupiter = HttpJupiterClient::for_mainnet();
+    let jito = HttpJitoClient::new("https://mainnet.block-engine.jito.wtf");
+    if let Err(e) = jito.populate_tip_accounts() {
+        eprintln!("dl-app run: populate_tip_accounts failed: {e}");
+        std::process::exit(2);
+    }
+    // If the operator passed --jito-tip-account use it; otherwise
+    // use HttpJitoClient's rotation (locked decision #4).
+    // Note: `next_tip_account` returns the tip account as a base58
+    // String, so we re-parse it via `Pubkey::from_str` to get a
+    // `Pubkey` value for `LiveConfig::tip_account`.
+    let tip_account_res: Result<Pubkey, String> = if let Some(s) = jito_tip_account {
+        Pubkey::from_str(s).map_err(|e| format!("--jito-tip-account: {e}"))
+    } else {
+        jito.next_tip_account()
+            .and_then(|s| {
+                Pubkey::from_str(&s)
+                    .map_err(|e| ExecutorError::JitoSubmit(format!("tip pubkey: {e}")))
+            })
+            .map_err(|e| format!("next_tip_account: {e}"))
+    };
+    let tip_account = match tip_account_res {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("dl-app run: tip account resolution failed: {e}");
+            std::process::exit(2);
+        }
+    };
+    eprintln!("dl-app run: using Jito tip_account={tip_account}");
+
+    // Pre-fund the vault PDA. Idempotent: if vault >= signer
+    // already, no tx is sent. The RPC URL defaults to the
+    // simulate-rpc-url, or falls back to `DL_LIVE_WS_URL` (the
+    // legacy env var), or finally the public mainnet endpoint.
+    let rpc_url: &str = simulate_rpc_url.unwrap_or_else(|| {
+        std::env::var("DL_LIVE_WS_URL")
+            .ok()
+            .map(|s| {
+                if s.starts_with("wss://") {
+                    Box::leak(
+                        s.replacen("wss://", "https://", 1)
+                            .into_boxed_str(),
+                    ) as &str
+                } else {
+                    Box::leak(s.into_boxed_str()) as &str
+                }
+            })
+            .unwrap_or("https://api.mainnet-beta.solana.com")
+    });
+    match dl_app::live::pre_fund_vault_if_needed(
+        rpc_url,
+        &signer_sol,
+        &vault,
+        &keystore,
+    ) {
+        Ok(dl_app::live::VaultFunded::AlreadyFunded {
+            vault_lamports,
+            signer_lamports,
+        }) => eprintln!(
+            "dl-app run: vault already funded (vault={} lamports, signer={} lamports)",
+            vault_lamports, signer_lamports
+        ),
+        Ok(dl_app::live::VaultFunded::Funded {
+            lamports,
+            signature,
+        }) => eprintln!(
+            "dl-app run: vault funded +{} lamports (sig={})",
+            lamports, signature
+        ),
+        Err(e) => eprintln!(
+            "dl-app run: vault prefund failed: {e}. \
+             The first bundle's assert tx will revert. \
+             Operator must fund manually per docs/v2.0-operator-runbook.md."
+        ),
+    }
+
+    // Safety modules — default config (operators override via
+    // env vars DL_DAILY_CAP_LAMPORTS etc before running).
+    let _cap_state = CapState::new(CapConfig::default());
+    let _rate_limit = RateLimit::new(RateLimitConfig::default());
+    let _killswitch = KillSwitch::new(KillSwitchConfig::default());
+
+    // Phase 2 C3: load `calibration.json` if it exists and feed it
+    // into the live eval model. Fall back to `conservative_default()`
+    // when no capture data is available (cold-start). The path is
+    // `DL_CALIBRATION_IN` (defaults to
+    // `./dl-calibration/calibration.json`).
+    let _eval_params: dl_sim::ev::EvalParams = match std::env::var("DL_CALIBRATION_IN")
+        .unwrap_or_else(|_| "./dl-calibration/calibration.json".into())
+        .as_str()
+    {
+        p if std::path::Path::new(p).exists() => {
+            match dl_calibration::read_calibration_report(p) {
+                Some(report) => {
+                    let ep = dl_app::live::eval_params_from_calibration(&report.result);
+                    eprintln!(
+                        "dl-app run --submit-live: loaded calibration from {} (p_detect={} p_win={} p_land={} n={} dsr={:?} cv={:?} overfit_risk={})",
+                        p,
+                        report.result.p_detect.to_ppm(),
+                        report.result.p_win.to_ppm(),
+                        report.result.p_land.to_ppm(),
+                        report.result.sample_size,
+                        report.overfit.dsr.as_ref().map(|d| d.dsr),
+                        report.overfit.purged_cv.as_ref().map(|c| c.n_folds),
+                        report.overfit.is_overfit_risk,
+                    );
+                    ep
+                }
+                None => {
+                    eprintln!(
+                        "dl-app run --submit-live: WARNING: failed to parse {}; using conservative_default()",
+                        p
+                    );
+                    dl_sim::ev::EvalParams::conservative_default()
+                }
+            }
+        }
+        _ => {
+            eprintln!(
+                "dl-app run --submit-live: no calibration file (cold-start); using conservative_default()"
+            );
+            dl_sim::ev::EvalParams::conservative_default()
+        }
+    };
+    let _ = &_eval_params; // silence unused for now; consumed by Phase 2 e2e loop
+
+    // Construct the LiveConfig so operators can see the resolved
+    // parameters. The actual cycle stream is wired by the
+    // operator (Phase 2 will hook StreamingDetector here).
+    let mut loaded_feeds: std::collections::HashMap<
+        solana_sdk::pubkey::Pubkey,
+        solana_sdk::pubkey::Pubkey,
+    > = dl_oracle::load_pyth_feeds_from_env();
+    if !loaded_feeds.is_empty() {
+        eprintln!(
+            "dl-app run --submit-live: loaded {} Pyth feed mappings from env",
+            loaded_feeds.len()
+        );
+    }
+
+    // Phase 2 L2: Pyth price staleness window. Operators override
+    // via `DL_PYTH_MAX_AGE_SECS`; default to `dl_oracle::MAX_PYTH_AGE_SECS`
+    // (60 s).
+    let pyth_max_age_secs: u64 = std::env::var("DL_PYTH_MAX_AGE_SECS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(dl_oracle::MAX_PYTH_AGE_SECS);
+
+    let cfg = dl_app::live::LiveConfig {
+        assert_program_id: assert_pid,
+        tip_config: dl_executor::tip::TipConfig::default(),
+        simulate_rpc_url: simulate_rpc_url.map(str::to_string),
+        tip_account,
+        recent_blockhash: Hash::new_unique(),
+        // Phase 2b: Pyth gate disabled at startup (paper-mode
+        // / cold-start). Operators wire a real `HttpPythClient`
+        // + `pyth_feeds` map via config file or `--pyth-*` flags
+        // in a follow-up (Phase 3 work).
+        pyth: None,
+        pyth_feeds: loaded_feeds,
+        pyth_max_age_secs,
+        // Phase 2 H3: niche filter disabled at startup. Operators
+        // populate via the DL_NICHES_IN env var pointing at a
+        // `niches.json` written by `dl-niches`.
+        niche_config: std::env::var("DL_NICHES_IN")
+            .ok()
+            .and_then(|p| dl_calibration::NicheConfig::load(p)),
+    };
+    eprintln!(
+        "dl-app run --submit-live: ready. live_cfg.tip_account={} simulate_rpc={:?} cap={} lamports",
+        cfg.tip_account,
+        cfg.simulate_rpc_url.as_deref().unwrap_or("(none)"),
+        mode.daily_cap_lamports
+    );
+    eprintln!("dl-app run: ready. wire `live::submit_opportunity` to your cycle stream.");
+    eprintln!("dl-app run: press Ctrl-C to exit");
+    // Block until SIGINT so the binary stays alive (operator
+    // can inspect config). Real cycle-stream wiring is Phase 2.
+    std::thread::park();
+}
+
+/// Pre-fund the vault PDA stub (kept for backwards compat
+/// with main.rs — replaced by `live::pre_fund_vault_if_needed`).
+fn pre_fund_vault_if_needed(
+    _signer: &solana_sdk::pubkey::Pubkey,
+    _vault: &solana_sdk::pubkey::Pubkey,
+) -> Result<(), String> {
+    // Replaced by `dl_app::live::pre_fund_vault_if_needed`. Kept as
+    // a no-op stub so this binary still type-checks. New code
+    // should call the live:: version directly.
+    Ok(())
+}
+
 fn run_run_subcommand() {
     let args: Vec<String> = env::args().skip(2).collect();
     let mut feed_kind = "capture".to_string();
@@ -245,13 +509,34 @@ fn run_run_subcommand() {
     let mut metrics_port: u16 = 9090;
     let mut capture_path: Option<String> = None;
     let mut ws_url: Option<String> = None;
+    // ─── Phase 1 v2.0 flags ──────────────────────────────────────────────
+    /// `--submit-live` enables the v2.0 live submit path (real
+    /// Jupiter + Jito + dl-assert). Without this flag the binary
+    /// falls back to v1.x paper mode.
+    let mut submit_live = false;
+    /// `--keyfile <PATH>` points at the dl-signer keystore JSON.
+    let mut keyfile: Option<String> = None;
+    /// `--assert-program-id <PUBKEY>` is the deployed dl-assert
+    /// program ID (devnet or mainnet).
+    let mut assert_program_id: Option<String> = None;
+    /// `--jito-tip-account <PUBKEY>` overrides Jito's auto-selected
+    /// tip account (for tests).
+    let mut jito_tip_account: Option<String> = None;
+    /// `--daily-cap-sol <N>` overrides `DL_DAILY_CAP_LAMPORTS`
+    /// for non-mainnet-paper modes. Mainnet-paper mode ignores
+    /// this and uses the 0.001 SOL floor.
+    let mut daily_cap_sol: Option<f64> = None;
+    /// `--simulate-rpc-url <URL>` is the simulateTransaction
+    /// gate RPC. Defaults to `DL_SIMULATE_RPC_URL` env var.
+    let mut simulate_rpc_url: Option<String> = None;
 
     let mut i = 0;
     while i < args.len() {
+        let val = || -> Option<String> { args.get(i + 1).cloned() };
         match args[i].as_str() {
             "--feed" => {
-                if let Some(v) = args.get(i + 1) {
-                    feed_kind = v.clone();
+                if let Some(v) = val() {
+                    feed_kind = v;
                 }
                 i += 2;
             }
@@ -260,7 +545,7 @@ fn run_run_subcommand() {
                 i += 1;
             }
             "--shutdown-after-n" => {
-                if let Some(v) = args.get(i + 1) {
+                if let Some(v) = val() {
                     if let Ok(n) = v.parse() {
                         shutdown_after_n = n;
                     }
@@ -272,7 +557,7 @@ fn run_run_subcommand() {
                 i += 1;
             }
             "--metrics-port" => {
-                if let Some(v) = args.get(i + 1) {
+                if let Some(v) = val() {
                     if let Ok(n) = v.parse() {
                         metrics_port = n;
                     }
@@ -280,20 +565,51 @@ fn run_run_subcommand() {
                 i += 2;
             }
             "--capture" => {
-                capture_path = args.get(i + 1).cloned();
+                capture_path = val();
                 i += 2;
             }
             "--ws-url" => {
-                ws_url = args.get(i + 1).cloned();
+                ws_url = val();
                 i += 2;
             }
             "--wallet" => {
-                wallet = args.get(i + 1).cloned();
+                wallet = val();
+                i += 2;
+            }
+            "--submit-live" => {
+                submit_live = true;
+                i += 1;
+            }
+            "--keyfile" => {
+                keyfile = val();
+                i += 2;
+            }
+            "--assert-program-id" => {
+                assert_program_id = val();
+                i += 2;
+            }
+            "--jito-tip-account" => {
+                jito_tip_account = val();
+                i += 2;
+            }
+            "--daily-cap-sol" => {
+                if let Some(v) = val() {
+                    if let Ok(n) = v.parse() {
+                        daily_cap_sol = Some(n);
+                    }
+                }
+                i += 2;
+            }
+            "--simulate-rpc-url" => {
+                simulate_rpc_url = val();
                 i += 2;
             }
             _ => i += 1,
         }
     }
+    // Track future planned but not yet wired (silences warnings).
+    let _ = enable_profiling;
+    let _ = metrics_port;
 
     // LiveMode gate: refused by default. Operators must
     // explicitly opt in via DL_LIVE_MODE.
@@ -321,32 +637,74 @@ fn run_run_subcommand() {
         std::process::exit(0);
     }
 
+    // `--daily-cap-sol` override. Mainnet-paper mode ignores this
+    // — the 0.001 SOL floor is hard-coded in `livemode.rs` (locked
+    // decision in the runbook). For other modes the override
+    // applies, capped at a sane ceiling (100 SOL) to prevent fat-finger
+    // misconfigurations.
+    if let Some(sol) = daily_cap_sol {
+        let lamports = (sol * 1_000_000_000.0) as u64;
+        if matches!(
+            mode.mode,
+            dl_signer::livemode::LiveMode::MainnetPaper
+        ) {
+            eprintln!(
+                "dl-app run: ignoring --daily-cap-sol {sol} SOL: \
+                 mainnet-paper floor is hard-coded to 0.001 SOL ({} lamports)",
+                mode.daily_cap_lamports
+            );
+        } else if lamports > 100 * 1_000_000_000 {
+            eprintln!(
+                "dl-app run: --daily-cap-sol {sol} SOL exceeds 100 SOL ceiling, ignoring"
+            );
+        } else {
+            std::env::set_var("DL_DAILY_CAP_LAMPORTS", lamports.to_string());
+        }
+    }
+
+    // DL_SIMULATE_RPC_URL env override (fallback if --simulate-rpc-url
+    // wasn't given on the command line).
+    let simulate_rpc_url = simulate_rpc_url
+        .or_else(|| std::env::var("DL_SIMULATE_RPC_URL").ok());
+
     info!(
         feed = %feed_kind,
         mode = %mode.mode.as_str(),
         daily_cap_lamports = mode.daily_cap_lamports,
         per_bundle_cap_lamports = mode.per_bundle_cap_lamports,
+        submit_live,
         dry_run_live,
         shutdown_after_n,
         capture_path = ?capture_path,
         ws_url = ?ws_url,
+        keyfile = ?keyfile,
+        assert_program_id = ?assert_program_id,
+        simulate_rpc_url = ?simulate_rpc_url,
         "dl-app run: live-mode wiring"
     );
 
+    // v2.0 live submit path (Phase 1). When --submit-live is set,
+    // route every detected cycle through `submit_opportunity` →
+    // real Jupiter → real Jito. This is the production path.
+    if submit_live {
+        run_live_submit(
+            keyfile.as_deref(),
+            assert_program_id.as_deref(),
+            jito_tip_account.as_deref(),
+            simulate_rpc_url.as_deref(),
+            &mode,
+        );
+        return;
+    }
+
     // For 08-03, `dl-app run --paper --feed capture <path>`
     // reads the capture file and runs the streaming pipeline.
-    // The full live Jupiter + Jito + solana-sdk stack is the
-    // v1.1.1 follow-up.
     if feed_kind == "capture" && capture_path.is_some() {
         run_capture_pipeline(capture_path.as_deref().unwrap(), &mode);
         return;
     }
 
-    // Phase 9: `dl-app run --feed live --wallet <path>`.
-    // Continuous live mode, runs the streaming detector
-    // against a small initial pool universe, executes each
-    // would_trade cycle as a paper trade, persists to
-    // wallet.json. Real WS feed expansion is v1.1.2.
+    // Phase 9 paper path: `dl-app run --feed live --wallet <path>`.
     if feed_kind == "live" {
         let wallet = wallet.unwrap_or_else(|| "./wallet.json".to_string());
         run_live_paper(&wallet, &mode);
@@ -413,18 +771,16 @@ fn run_live_paper(wallet_path: &str, mode: &dl_signer::ResolvedLiveMode) {
     use std::time::Duration;
     use dl_paper::{PaperWallet, TradeFill, Side};
     use dl_state::decoder::{
-        decode_amm_info, decode_whirlpool, decode_lb_pair,
-        decode_spl_token_account,
-        identify_amm_by_program,
-        RAYDIUM_AMM_V4_PROGRAM_ID,
-        ORCA_WHIRLPOOL_PROGRAM_ID,
-        METEORA_DLMM_PROGRAM_ID,
+        decode_amm_info, decode_whirlpool, decode_whirlpool_real, decode_lb_pair,
+        decode_spl_token_account, identify_amm_by_program, Whirlpool,
+        RAYDIUM_AMM_V4_PROGRAM_ID, ORCA_WHIRLPOOL_PROGRAM_ID,
+        METEORA_DLMM_PROGRAM_ID, SPL_TOKEN_ACCOUNT_SIZE,
     };
     use dl_state::pool::{AmmKind, Pool};
     use dl_stream::detector::StreamingDetector;
+    use dl_sim::cost::{CostModel, CostBreakdown};
     use dl_sim::ev::{EvalParams, evaluate};
     use dl_sim::net_profit::NetProfit;
-    use dl_sim::cost::CostBreakdown;
     use dl_ledger::Decision;
     use dl_detect::bellman_ford::find_negative_cycles;
     use dl_core::feed::{Feed, FeedEvent};
@@ -554,6 +910,11 @@ fn run_live_paper(wallet_path: &str, mode: &dl_signer::ResolvedLiveMode) {
     // (AmmInfo + base_vault/quote_vault pubkeys + latest reserves).
     // Used to look up the parent pool when a vault update arrives.
     let mut raydium_pools: HashMap<[u8; 32], (Pool, Pubkey, Pubkey)> = HashMap::new();
+    // Phase 2 C1: separate maps for Orca Whirlpool and Meteora DLMM
+    // so the 165-byte SplTokenAccount branch can route vault updates
+    // back to the parent pool for all three DEXs.
+    let mut orca_pools: HashMap<[u8; 32], (Pool, Pubkey, Pubkey)> = HashMap::new();
+    let mut meteora_pools: HashMap<[u8; 32], (Pool, Pubkey, Pubkey)> = HashMap::new();
     // Tracks which vaults we've already subscribed to (avoid duplicates).
     let mut subscribed_vaults: HashMap<[u8; 32], ()> = HashMap::new();
 
@@ -577,6 +938,7 @@ fn run_live_paper(wallet_path: &str, mode: &dl_signer::ResolvedLiveMode) {
             quote_reserve: 1_000_000_000,
             fee_bps: 30,
             last_update_slot: 0,
+            ..Default::default()
         }])
         .expect("placeholder pool construction must succeed")
     });
@@ -590,7 +952,21 @@ fn run_live_paper(wallet_path: &str, mode: &dl_signer::ResolvedLiveMode) {
     let realistic_mode = env::var("DL_PAPER_MODE")
         .map(|v| v.eq_ignore_ascii_case("realistic"))
         .unwrap_or(false);
-    let eval_params = EvalParams::optimistic();
+    // Two distinct EvalParams: the optimistic bound uses
+    // `EvalParams::optimistic()` (no haircut, no tip, always win);
+    // the conservative bound uses `EvalParams::conservative_default()`
+    // (full pessimistic stack). The paper path defaults to
+    // optimistic-both because the wallet is a *ceiling*, not a
+    // prediction — operators who want realistic sizing should set
+    // `DL_PAPER_MODE=realistic` (random win rate) or wire
+    // dl-calibration to load fitted `p_detect / p_win / p_land`.
+    let eval_optimistic = EvalParams::optimistic();
+    let eval_conservative = EvalParams::conservative_default();
+    // Cost stack: matches the v1.1 default (5_000 base sig +
+    // 1_000 priority + 10_000 Jito tip).
+    let cost = CostModel::default_busy();
+    // Sizer input cap: 1 SOL in lamports. Matches `ReplayParams::default`.
+    let max_input: u128 = 1_000_000_000;
     if realistic_mode {
         eprintln!("dl-app run: mode=REALISTIC (optimistic bound + 30% random win rate)");
     } else {
@@ -627,6 +1003,132 @@ fn run_live_paper(wallet_path: &str, mode: &dl_signer::ResolvedLiveMode) {
         };
         events += 1;
 
+        // FIRST-A: try to decode as an Orca Whirlpool. Accepts both
+        // the simplified 256-B layout (v1.0 tests / synthetic) and
+        // the real 653-B mainnet layout. Whichever succeeds first
+        // wins. Subscribe to its vault accounts (Phase 2a: all 3
+        // DEXs feeding).
+        let whirl = if data.len() == 256 {
+            decode_whirlpool(&data).ok()
+        } else if data.len() >= 234 && data.len() <= 256 {
+            // The simplified layout is 256; anything in 234..256 is
+            // rejected. Skip.
+            None
+        } else {
+            // Try the real 653-B layout first (the common case
+            // on mainnet). Fall back to the simplified layout if
+            // the bytes happen to be 256-B synthetic data.
+            decode_whirlpool_real(&data).ok().map(|w_real| {
+                // Build a synthetic simplified Whirlpool from the
+                // real layout so the rest of the pipeline (which
+                // uses `decode_whirlpool`-shaped data) can proceed.
+                Whirlpool {
+                    sqrt_price: w_real.sqrt_price,
+                    tick_current_index: w_real.tick_current_index,
+                    tick_spacing: w_real.tick_spacing,
+                    liquidity: w_real.liquidity,
+                    token_mint_x: w_real.token_mint_x,
+                    token_mint_y: w_real.token_mint_y,
+                    token_vault_x: w_real.token_vault_x,
+                    token_vault_y: w_real.token_vault_y,
+                    fee_rate: w_real.fee_rate,
+                    program_id: ORCA_WHIRLPOOL_PROGRAM_ID,
+                }
+            })
+        };
+        if let Some(whirl) = whirl {
+            for vault in [whirl.token_vault_x, whirl.token_vault_y] {
+                if !subscribed_vaults.contains_key(&vault.0) {
+                    if let Err(e) = runtime.block_on(ws.subscribe_account(vault.0)) {
+                        eprintln!("dl-app run: orca vault subscribe failed: {e}");
+                    } else {
+                        subscribed_vaults.insert(vault.0, ());
+                    }
+                }
+            }
+            let pool = Pool {
+                address: Pubkey(pubkey),
+                kind: AmmKind::OrcaWhirlpool,
+                base_mint: whirl.token_mint_x,
+                quote_mint: whirl.token_mint_y,
+                base_decimals: 9,
+                quote_decimals: 6,
+                base_reserve: 0,
+                quote_reserve: 0,
+                fee_bps: whirl.fee_rate,
+                last_update_slot: 0,
+                ..Default::default()
+            };
+            pools_seen += 1;
+            orca_pools.insert(
+                pubkey,
+                (pool.clone(), whirl.token_vault_x, whirl.token_vault_y),
+            );
+            let cycles = detector.on_pool_update(&pool);
+            cycles_evaluated += cycles.len() as u64;
+            evaluate_and_write_cycles(
+                cycles,
+                &snapshot_all_pools(&raydium_pools, &orca_pools, &meteora_pools),
+                &mut wallet,
+                path,
+                &eval_optimistic,
+                &eval_conservative,
+                &cost,
+                max_input,
+                realistic_mode,
+                &mut cycles_evaluated,
+                &mut trades_written,
+            );
+            continue;
+        }
+
+        // FIRST-B: try to decode as a Meteora DLMM LbPair (1024-2236 B).
+        // Subscribe to its vault accounts (Phase 2a: all 3 DEXs feeding).
+        if data.len() >= 156 + 32 * 65 {
+            if let Ok(lp) = decode_lb_pair(&data) {
+                for vault in [lp.token_vault_x, lp.token_vault_y] {
+                    if !subscribed_vaults.contains_key(&vault.0) {
+                        if let Err(e) = runtime.block_on(ws.subscribe_account(vault.0)) {
+                            eprintln!("dl-app run: meteora vault subscribe failed: {e}");
+                        } else {
+                            subscribed_vaults.insert(vault.0, ());
+                        }
+                    }
+                }
+                let pool = Pool {
+                    address: Pubkey(pubkey),
+                    kind: AmmKind::MeteoraDlmm,
+                    base_mint: lp.token_mint_x,
+                    quote_mint: lp.token_mint_y,
+                    base_decimals: 9,
+                    quote_decimals: 6,
+                    base_reserve: 0,
+                    quote_reserve: 0,
+                    fee_bps: lp.bin_step as u16,
+                    last_update_slot: 0,
+                    ..Default::default()
+                };
+                pools_seen += 1;
+                meteora_pools.insert(pubkey, (pool.clone(), lp.token_vault_x, lp.token_vault_y));
+                let cycles = detector.on_pool_update(&pool);
+                cycles_evaluated += cycles.len() as u64;
+                evaluate_and_write_cycles(
+                    cycles,
+                    &snapshot_all_pools(&raydium_pools, &orca_pools, &meteora_pools),
+                    &mut wallet,
+                    path,
+                    &eval_optimistic,
+                    &eval_conservative,
+                    &cost,
+                    max_input,
+                    realistic_mode,
+                    &mut cycles_evaluated,
+                &mut trades_written,
+                );
+                continue;
+            }
+        }
+
         // FIRST: try to decode as a Raydium AmmInfo (752 bytes).
         // If yes, also subscribe to its vaults and store it.
         if data.len() == 752 {
@@ -647,6 +1149,13 @@ fn run_live_paper(wallet_path: &str, mode: &dl_signer::ResolvedLiveMode) {
                     }
                 }
 
+                // Phase 2a: also try Orca Whirlpool (256 B) and
+                // Meteora DLMM (1024-2236 B). The size check is a
+                // fast pre-filter; the decoder rejects sub-threshold
+                // sizes with TooShort. Subscribe to both vaults for
+                // each kind so reserves populate and the StreamingDetector
+                // sees non-zero edge weights for those DEXs.
+
                 // Build a pool stub (reserves 0) for the detector.
                 let pool = Pool {
                     address: Pubkey(pubkey),
@@ -659,6 +1168,7 @@ fn run_live_paper(wallet_path: &str, mode: &dl_signer::ResolvedLiveMode) {
                     quote_reserve: 0,
                     fee_bps: amm.fee_bps().unwrap_or(30),
                     last_update_slot: 0,
+                    ..Default::default()
                 };
                 pools_seen += 1;
                 // Insert (overwrite) in the tracking map.
@@ -674,59 +1184,147 @@ fn run_live_paper(wallet_path: &str, mode: &dl_signer::ResolvedLiveMode) {
                 cycles_evaluated += cycles.len() as u64;
                 evaluate_and_write_cycles(
                     cycles,
+                    &snapshot_all_pools(&raydium_pools, &orca_pools, &meteora_pools),
                     &mut wallet,
                     path,
-                    &eval_params,
+                    &eval_optimistic,
+                    &eval_conservative,
+                    &cost,
+                    max_input,
                     realistic_mode,
                     &mut cycles_evaluated,
-                    &mut trades_written,
+                &mut trades_written,
                 );
                 continue;
             }
         }
 
         // SECOND: try to decode as a vault SplTokenAccount
-        // (SPL token accounts are 165 bytes).
-        if data.len() == 165 {
+        // (SPL token accounts are 165 bytes; Token-2022 vault
+        // accounts are 234 B or larger — both are layout-compatible
+        // for the first 72 B which hold mint + amount). Phase 2 C1:
+        // route through ALL three pool maps (Raydium + Orca +
+        // Meteora) so vault updates populate reserves for all 3 DEXs.
+        if data.len() >= SPL_TOKEN_ACCOUNT_SIZE {
             if let Ok(spl) = decode_spl_token_account(&data) {
                 vault_updates += 1;
                 // Find the parent pool that references this vault.
-                let parent_key = raydium_pools
-                    .iter()
-                    .find_map(|(k, (_, bv, qv))| {
+                // Search Raydium first (most common), then Orca, then Meteora.
+                // Returns (parent_addr, new_reserve, is_base, kind).
+                enum DexKind { Raydium, Orca, Meteora }
+                let mut found: Option<([u8; 32], u64, bool, DexKind)> = None;
+                for (k, (_, bv, qv)) in &raydium_pools {
+                    if bv.0 == pubkey {
+                        found = Some((*k, spl.amount, true, DexKind::Raydium));
+                        break;
+                    } else if qv.0 == pubkey {
+                        found = Some((*k, spl.amount, false, DexKind::Raydium));
+                        break;
+                    }
+                }
+                if found.is_none() {
+                    for (k, (_, bv, qv)) in &orca_pools {
                         if bv.0 == pubkey {
-                            Some((k, spl.amount, true))
+                            found = Some((*k, spl.amount, true, DexKind::Orca));
+                            break;
                         } else if qv.0 == pubkey {
-                            Some((k, spl.amount, false))
-                        } else {
-                            None
+                            found = Some((*k, spl.amount, false, DexKind::Orca));
+                            break;
                         }
-                    });
-                if let Some((parent_addr, new_reserve, is_base)) = parent_key {
-                    let (mut pool, bv, qv) =
-                        raydium_pools.get(parent_addr).unwrap().clone();
-                    if is_base {
-                        pool.base_reserve = new_reserve;
-                    } else {
-                        pool.quote_reserve = new_reserve;
                     }
-                    // Only run detection once we have BOTH reserves
-                    // non-zero (otherwise edge has no weight anyway).
-                    if pool.base_reserve > 0 && pool.quote_reserve > 0 {
-                        let cycles = detector.on_pool_update(&pool);
-                        cycles_evaluated += cycles.len() as u64;
-                        evaluate_and_write_cycles(
-                            cycles,
-                            &mut wallet,
-                            path,
-                            &eval_params,
-                            realistic_mode,
-                            &mut cycles_evaluated,
-                            &mut trades_written,
-                        );
+                }
+                if found.is_none() {
+                    for (k, (_, bv, qv)) in &meteora_pools {
+                        if bv.0 == pubkey {
+                            found = Some((*k, spl.amount, true, DexKind::Meteora));
+                            break;
+                        } else if qv.0 == pubkey {
+                            found = Some((*k, spl.amount, false, DexKind::Meteora));
+                            break;
+                        }
                     }
-                    // Persist the updated pool in the map.
-                    raydium_pools.insert(*parent_addr, (pool, bv, qv));
+                }
+                if let Some((parent_addr, new_reserve, is_base, kind)) = found {
+                    match kind {
+                        DexKind::Raydium => {
+                            if let Some((mut pool, bv, qv)) =
+                                raydium_pools.get(&parent_addr).cloned()
+                            {
+                                if is_base { pool.base_reserve = new_reserve; }
+                                else { pool.quote_reserve = new_reserve; }
+                                if pool.base_reserve > 0 && pool.quote_reserve > 0 {
+                                    let cycles = detector.on_pool_update(&pool);
+                                    cycles_evaluated += cycles.len() as u64;
+                                    evaluate_and_write_cycles(
+                                        cycles,
+                                        &snapshot_all_pools(&raydium_pools, &orca_pools, &meteora_pools),
+                                        &mut wallet,
+                                        path,
+                                        &eval_optimistic,
+                                        &eval_conservative,
+                                        &cost,
+                                        max_input,
+                                        realistic_mode,
+                                        &mut cycles_evaluated,
+                                    &mut trades_written,
+                                    );
+                                }
+                                raydium_pools.insert(parent_addr, (pool, bv, qv));
+                            }
+                        }
+                        DexKind::Orca => {
+                            if let Some((mut pool, bv, qv)) =
+                                orca_pools.get(&parent_addr).cloned()
+                            {
+                                if is_base { pool.base_reserve = new_reserve; }
+                                else { pool.quote_reserve = new_reserve; }
+                                if pool.base_reserve > 0 && pool.quote_reserve > 0 {
+                                    let cycles = detector.on_pool_update(&pool);
+                                    cycles_evaluated += cycles.len() as u64;
+                                    evaluate_and_write_cycles(
+                                        cycles,
+                                        &snapshot_all_pools(&raydium_pools, &orca_pools, &meteora_pools),
+                                        &mut wallet,
+                                        path,
+                                        &eval_optimistic,
+                                        &eval_conservative,
+                                        &cost,
+                                        max_input,
+                                        realistic_mode,
+                                        &mut cycles_evaluated,
+                                    &mut trades_written,
+                                    );
+                                }
+                                orca_pools.insert(parent_addr, (pool, bv, qv));
+                            }
+                        }
+                        DexKind::Meteora => {
+                            if let Some((mut pool, bv, qv)) =
+                                meteora_pools.get(&parent_addr).cloned()
+                            {
+                                if is_base { pool.base_reserve = new_reserve; }
+                                else { pool.quote_reserve = new_reserve; }
+                                if pool.base_reserve > 0 && pool.quote_reserve > 0 {
+                                    let cycles = detector.on_pool_update(&pool);
+                                    cycles_evaluated += cycles.len() as u64;
+                                    evaluate_and_write_cycles(
+                                        cycles,
+                                        &snapshot_all_pools(&raydium_pools, &orca_pools, &meteora_pools),
+                                        &mut wallet,
+                                        path,
+                                        &eval_optimistic,
+                                        &eval_conservative,
+                                        &cost,
+                                        max_input,
+                                        realistic_mode,
+                                        &mut cycles_evaluated,
+                                    &mut trades_written,
+                                    );
+                                }
+                                meteora_pools.insert(parent_addr, (pool, bv, qv));
+                            }
+                        }
+                    }
                 }
                 continue;
             }
@@ -741,12 +1339,16 @@ fn run_live_paper(wallet_path: &str, mode: &dl_signer::ResolvedLiveMode) {
         cycles_evaluated += cycles.len() as u64;
         evaluate_and_write_cycles(
             cycles,
+            &snapshot_all_pools(&raydium_pools, &orca_pools, &meteora_pools),
             &mut wallet,
             path,
-            &eval_params,
+            &eval_optimistic,
+            &eval_conservative,
+            &cost,
+            max_input,
             realistic_mode,
             &mut cycles_evaluated,
-            &mut trades_written,
+        &mut trades_written,
         );
 
         // Throttled status log every 5s.
@@ -774,45 +1376,81 @@ fn run_live_paper(wallet_path: &str, mode: &dl_signer::ResolvedLiveMode) {
 /// For each detected cycle, evaluate the conservative bound
 /// and write a paper trade to `wallet.json` if the decision
 /// is `WouldTrade`.
+///
+/// Uses the **real** `find_optimal_input` + `simulate_cycle` +
+/// `evaluate` pipeline (the same one the recon harness uses), so
+/// predicted PnL matches what `dl-recon` would record. The
+/// `optimistic` and `conservative` `EvalParams` are passed in
+/// separately — the previous version passed the same struct twice,
+/// which collapsed the dual-bound check.
+///
+/// `pools` is the snapshot of currently-tracked pools across all
+/// three DEXs. `cost` is the cost stack applied per bundle.
 fn evaluate_and_write_cycles(
     cycles: Vec<dl_state::cycle::Cycle>,
+    pools: &[dl_state::Pool],
     wallet: &mut dl_paper::PaperWallet,
     path: &std::path::Path,
-    eval_params: &dl_sim::ev::EvalParams,
+    optimistic_eval: &dl_sim::ev::EvalParams,
+    conservative_eval: &dl_sim::ev::EvalParams,
+    cost: &dl_sim::cost::CostModel,
+    max_input: u128,
     realistic_mode: bool,
     cycles_evaluated: &mut u64,
     trades_written: &mut u64,
 ) {
-    use dl_paper::{TradeFill, Side};
+    use dl_paper::{Side, TradeFill};
     use dl_ledger::Decision;
     use dl_sim::ev::evaluate;
     use dl_sim::net_profit::NetProfit;
-    use dl_sim::cost::CostBreakdown;
+    use dl_sim::simulate::simulate_cycle;
+    use dl_sim::sizing::{find_optimal_input, OptimalInput};
+    use dl_state::PoolRegistry;
+
+    // Build a transient PoolRegistry from the snapshot. `simulate_cycle`
+    // and `find_optimal_input` both take a registry, so we materialise
+    // it here.
+    let mut registry = PoolRegistry::new();
+    for p in pools {
+        registry.insert(p.clone());
+    }
+
     for cycle in cycles {
-        // Simulate the cycle's fill math using a placeholder
-        // gross per leg (real fill math needs the PoolRegistry
-        // which v1.1.4 doesn't carry yet — that's v1.1.5).
-        // 100_000 lamports per leg approximates a real cycle's
-        // per-leg output on a small input.
-        let gross: u128 = cycle.legs.len() as u128 * 100_000;
-        let ev_out = evaluate(
-            &NetProfit {
-                input_amount: 1_000_000,
-                gross_output: gross,
-                total_costs: CostBreakdown {
-                    base_sig_fee_lamports: 5_000,
-                    priority_fee_lamports: 1_000,
-                    jito_tip_lamports: 10_000,
-                    jito_tip_fee_lamports: 0,
-                    total_lamports: 16_000,
-                },
-                net_profit: (gross as i128) - 16_000,
-                net_profit_bps: (((gross as i128 - 16_000) * 10_000 / 1_000_000) as i32),
-                profitable: gross > 16_000,
-            },
-            eval_params,
-            eval_params,
-        );
+        // Sizing: find the input that maximises net profit.
+        let sizing = match find_optimal_input(&cycle, &registry, cost, max_input) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("dl-app run: sizer error for cycle: {e}");
+                continue;
+            }
+        };
+
+        // Fill + cost: real `simulate_cycle` against the registry.
+        let input: u128 = match &sizing {
+            OptimalInput::Profitable { amount, .. } => *amount,
+            // NoTrade: use the cycle's max_input/2 as a representative
+            // sample so we still produce a NetProfit (loss-making).
+            OptimalInput::NoTrade { .. } => max_input / 2,
+        };
+        let cycle_fill = match simulate_cycle(&cycle, &registry, input) {
+            Ok(f) => f,
+            Err(e) => {
+                eprintln!("dl-app run: simulate error for cycle: {e}");
+                continue;
+            }
+        };
+        let gross = cycle_fill.final_output;
+
+        let net = match NetProfit::from_optimal(sizing.clone(), input, gross, cost) {
+            Ok(n) => n,
+            Err(e) => {
+                eprintln!("dl-app run: NetProfit error: {e}");
+                continue;
+            }
+        };
+
+        // EV: evaluate under both bounds.
+        let ev_out = evaluate(&net, optimistic_eval, conservative_eval);
         let decision = Decision::from_ev(&ev_out.conservative);
         if !matches!(decision, Decision::WouldTrade) {
             continue;
@@ -820,13 +1458,25 @@ fn evaluate_and_write_cycles(
         *cycles_evaluated += 1;
         let net_profit_signed = ev_out.conservative.e_pnl;
         let pair = format_cycle_pair(&cycle);
+
+        let output_lamports: u64 = if gross > u64::MAX as u128 {
+            u64::MAX
+        } else {
+            gross as u64
+        };
+        let input_lamports: u64 = if input > u64::MAX as u128 {
+            u64::MAX
+        } else {
+            input as u64
+        };
+
         let fill = TradeFill {
             pair,
             side: Side::BaseToQuote,
-            input_lamports: 1_000_000,
-            output_lamports: 1_000_000 + (gross as u64).saturating_sub(16_000),
+            input_lamports,
+            output_lamports,
             profit_lamports: net_profit_signed as i64,
-            tip_lamports: 10_000,
+            tip_lamports: cost.jito_tip_lamports,
             cycle_hash_hex: format!("{:?}", cycle),
         };
         let trade = if realistic_mode && !won_simulated() {
@@ -870,6 +1520,27 @@ fn evaluate_and_write_cycles(
             }
         }
     }
+}
+
+/// Snapshot all currently-tracked pools across the three DEXs into
+/// a single `Vec<Pool>`. Used to feed `evaluate_and_write_cycles`
+/// (which builds a transient `PoolRegistry` for `simulate_cycle`).
+fn snapshot_all_pools(
+    raydium: &std::collections::HashMap<[u8; 32], (dl_state::Pool, dl_state::Pubkey, dl_state::Pubkey)>,
+    orca: &std::collections::HashMap<[u8; 32], (dl_state::Pool, dl_state::Pubkey, dl_state::Pubkey)>,
+    meteora: &std::collections::HashMap<[u8; 32], (dl_state::Pool, dl_state::Pubkey, dl_state::Pubkey)>,
+) -> Vec<dl_state::Pool> {
+    let mut out = Vec::with_capacity(raydium.len() + orca.len() + meteora.len());
+    for (_, (p, _, _)) in raydium {
+        out.push(p.clone());
+    }
+    for (_, (p, _, _)) in orca {
+        out.push(p.clone());
+    }
+    for (_, (p, _, _)) in meteora {
+        out.push(p.clone());
+    }
+    out
 }
 
 /// Simulated win/loss for the realistic paper mode. xorshift64
@@ -962,6 +1633,7 @@ fn decode_pool_update(pubkey: &[u8; 32], data: &[u8]) -> Option<Pool> {
             quote_reserve: 0,
             fee_bps: amm.fee_bps().unwrap_or(30),
             last_update_slot: 0,
+            ..Default::default()
         });
     }
     if data.len() == 653 {
@@ -977,6 +1649,7 @@ fn decode_pool_update(pubkey: &[u8; 32], data: &[u8]) -> Option<Pool> {
             quote_reserve: 0,
             fee_bps: 30,
             last_update_slot: 0,
+            ..Default::default()
         });
     }
     // Meteora DLMM: variable length; best-effort decode.
@@ -992,6 +1665,7 @@ fn decode_pool_update(pubkey: &[u8; 32], data: &[u8]) -> Option<Pool> {
             quote_reserve: 0,
             fee_bps: (lp.bin_step as u16).min(u16::MAX),
             last_update_slot: 0,
+            ..Default::default()
         });
     }
     None

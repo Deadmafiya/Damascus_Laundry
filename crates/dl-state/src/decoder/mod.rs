@@ -9,12 +9,14 @@ pub mod orca_whirlpool;
 pub mod raydium_amm_v4;
 
 pub use meteora_dlmm::{
-    decode_lb_pair, encode_lb_pair, DecodeError as MeteoraDecodeError, LbPair, DLMM_ACCOUNT_SIZE,
-    METEORA_DLMM_PROGRAM_ID, SCALE_OFFSET,
+    assemble_lb_pair_pool, decode_lb_pair, encode_lb_pair, DecodeError as MeteoraDecodeError,
+    LbPair, DLMM_ACCOUNT_SIZE, METEORA_DLMM_PROGRAM_ID, SCALE_OFFSET,
 };
 pub use orca_whirlpool::{
-    decode_whirlpool, encode_whirlpool, DecodeError as OrcaDecodeError, Whirlpool,
+    assemble_whirlpool_pool, assemble_whirlpool_real_pool, decode_whirlpool, decode_whirlpool_real,
+    encode_whirlpool, DecodeError as OrcaDecodeError, Whirlpool, WhirlpoolReal,
     ORCA_WHIRLPOOL_PROGRAM_ID, Q64_RESOLUTION, WHIRLPOOL_ACCOUNT_SIZE,
+    WHIRLPOOL_ACCOUNT_SIZE_REAL,
 };
 pub use raydium_amm_v4::{
     assemble_pool, decode_amm_info, decode_spl_token_account, AmmInfo, SplTokenAccount,
