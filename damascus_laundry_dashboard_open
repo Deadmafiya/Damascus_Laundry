@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Launch the damascus_laundry dashboard in your browser.
+# Usage:  ./damascus_laundry_dashboard_open [--no-browser] [--port N]
+#         (then Ctrl-C to stop the server)
+set -euo pipefail
+REPO="$(cd "$(dirname "$0")" && pwd)"
+PORT="${DL_DASHBOARD_PORT:-8765}"
+OPEN_BROWSER=1
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --no-browser) OPEN_BROWSER=0; shift ;;
+        --port) PORT="${2:-8765}"; shift 2 ;;
+        *) echo "unknown arg: $1" >&2; exit 2 ;;
+    esac
+done
+
+"${REPO}/damascus_laundry_dashboard" --port "$PORT" --host 127.0.0.1 &
+SERVER_PID=$!
+sleep 1
+
+URL="http://127.0.0.1:${PORT}/"
+echo "damascus_laundry dashboard: $URL"
+echo "PID: ${SERVER_PID}  (stop with: kill ${SERVER_PID})"
+
+if [[ $OPEN_BROWSER -eq 1 ]]; then
+    if command -v xdg-open >/dev/null 2>&1; then xdg-open "$URL" >/dev/null 2>&1 || true
+    elif command -v open >/dev/null 2>&1; then open "$URL" >/dev/null 2>&1 || true
+    elif command -v firefox >/dev/null 2>&1; then firefox "$URL" >/dev/null 2>&1 &
+    elif command -v google-chrome >/dev/null 2>&1; then google-chrome "$URL" >/dev/null 2>&1 &
+    fi
+fi
+
+wait "$SERVER_PID"

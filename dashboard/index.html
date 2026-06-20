@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Damascus Laundry Paper Trader Dashboard</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet"/>
+<style>
+:root {
+    --bg: #111319; --shadow-light: #1a1d26; --shadow-dark: #08090c;
+    --text-main: #e1e2ea; --text-muted: #8d909e; --border-subtle: rgba(0,0,0,0.2);
+    --color-primary: #aec6ff; --color-secondary: #42e09a; --color-error: #ffb4ab;
+    --color-error-container: #93000a; --glow-secondary: rgba(66, 224, 154, 0.6);
+    --glow-error: rgba(255, 180, 171, 0.6);
+}
+html.light {
+    --bg: #E0E5EC; --shadow-light: #ffffff; --shadow-dark: #8c98a9;
+    --text-main: #111827; --text-muted: #4b5563; --border-subtle: rgba(0,0,0,0.05);
+    --color-primary: #2563eb; --color-secondary: #059669; --color-error: #dc2626;
+    --color-error-container: #991b1b; --glow-secondary: rgba(5, 150, 105, 0.6);
+    --glow-error: rgba(220, 38, 38, 0.6);
+}
+body { background-color: var(--bg); color: var(--text-main); transition: background-color 0.3s ease, color 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease; }
+.neo-surface { background-color: var(--bg); box-shadow: 8px 8px 16px var(--shadow-dark), -8px -8px 16px var(--shadow-light); border-radius: 12px; border: 1px solid var(--border-subtle); transition: background-color 0.3s ease, color 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease; }
+.neo-surface-inset { background-color: var(--bg); box-shadow: inset 6px 6px 12px var(--shadow-dark), inset -6px -6px 12px var(--shadow-light); border-radius: 8px; transition: background-color 0.3s ease, color 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease; }
+.neo-btn { background-color: var(--bg); box-shadow: 4px 4px 8px var(--shadow-dark), -4px -4px 8px var(--shadow-light); border-radius: 6px; transition: all 0.2s cubic-bezier(0.25, 0.8, 0.25, 1); border: 1px solid var(--border-subtle); transform: scale(1); }
+.neo-btn:active, .neo-btn.active { box-shadow: inset 4px 4px 8px var(--shadow-dark), inset -4px -4px 8px var(--shadow-light); transform: scale(0.98); }
+.neo-btn:hover:not(:disabled) { transform: scale(1.02); box-shadow: 6px 6px 12px var(--shadow-dark), -6px -6px 12px var(--shadow-light); }
+.neo-btn:disabled { opacity: 0.5; box-shadow: 2px 2px 4px var(--shadow-dark), -2px -2px 4px var(--shadow-light); cursor: not-allowed; transform: scale(1); }
+.pulse-active { animation: pulse-ring 2s cubic-bezier(0.215, 0.61, 0.355, 1) infinite; }
+@keyframes pulse-ring { 0% { box-shadow: 0 0 0 0 var(--glow-secondary); } 70% { box-shadow: 0 0 0 6px rgba(0,0,0,0); } 100% { box-shadow: 0 0 0 0 rgba(0,0,0,0); } }
+.table-row-hover { transition: all 0.2s ease; border-radius: 4px; }
+.table-row-hover:hover { background-color: rgba(0, 0, 0, 0.03); transform: translateY(-1px); box-shadow: 2px 2px 4px var(--shadow-dark), -2px -2px 4px var(--shadow-light); z-index: 10; position: relative; }
+html.light .table-row-hover:hover { background-color: rgba(0, 0, 0, 0.05); }
+.feed-item-hover { transition: all 0.2s ease; }
+.feed-item-hover:hover { background-color: rgba(0, 0, 0, 0.03); transform: translateY(-1px); box-shadow: 2px 2px 5px var(--shadow-dark), -2px -2px 5px var(--shadow-light); }
+html.light .feed-item-hover:hover { background-color: rgba(0, 0, 0, 0.05); }
+.slide-in-top { animation: slide-in 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
+@keyframes slide-in { from { transform: translateY(-15px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+.fade-in-up { opacity: 0; animation: fadeInUp 0.5s ease-out forwards; }
+@keyframes fadeInUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+.delay-100 { animation-delay: 100ms; } .delay-200 { animation-delay: 200ms; }
+.delay-300 { animation-delay: 300ms; } .delay-400 { animation-delay: 400ms; }
+.delay-500 { animation-delay: 500ms; } .delay-600 { animation-delay: 600ms; }
+.number-flash { animation: numberFlash 0.5s ease-out; }
+@keyframes numberFlash { 0% { color: var(--color-secondary); text-shadow: 0 0 8px var(--glow-secondary); } 100% { color: inherit; text-shadow: none; } }
+.text-on-surface { color: var(--text-main); } .text-on-surface-variant { color: var(--text-muted); } .text-outline { color: var(--text-muted); }
+.font-body-md { font-family: "Inter", sans-serif; } .font-mono-data { font-family: "JetBrains Mono", monospace; }
+</style>
+</head>
+<body class="font-body-md h-screen w-full overflow-y-auto flex flex-col antialiased">
+
+<header class="fixed top-0 w-full z-50 flex justify-between items-center px-6 h-16 neo-surface fade-in-up" style="border-radius: 0; box-shadow: 0 4px 8px var(--shadow-dark);">
+<div class="flex items-center gap-4">
+<span class="font-mono-data text-base font-bold tracking-tighter" style="color: var(--color-primary);">damascus_laundry</span>
+<span class="text-on-surface-variant font-mono-data text-[10px] px-2 py-0.5 neo-surface-inset" id="version-pill">v1.1.7</span>
+</div>
+<div class="flex items-center gap-2 text-sm text-on-surface-variant px-4 py-2 neo-surface-inset" id="status-pill">
+<div id="status-dot" class="w-2 h-2 rounded-full bg-outline"></div>
+<span class="font-mono-data" id="status-text">Loading…</span>
+</div>
+<div class="flex items-center gap-3">
+<button class="text-on-surface-variant px-4 py-1.5 font-medium text-base neo-btn" id="btn-start">Start</button>
+<button class="px-4 py-1.5 font-medium text-base neo-btn" id="btn-stop" style="color: var(--color-error);">Stop</button>
+<div class="flex neo-surface-inset p-1 overflow-hidden gap-1" id="mode-toggle">
+<button class="px-3 py-1 font-mono-data text-sm neo-btn" id="mode-optimistic">PAPER</button>
+<button class="px-3 py-1 font-mono-data text-sm neo-btn" id="mode-realistic">REALISTIC</button>
+</div>
+<button class="flex items-center gap-1 text-on-surface-variant hover:text-on-surface neo-btn p-2 rounded-full" id="btn-seed" title="Reset wallet">
+<span class="material-symbols-outlined text-[18px]">restart_alt</span>
+</button>
+<button class="flex items-center gap-1 text-on-surface-variant hover:text-on-surface neo-btn p-2 rounded-full" id="btn-refresh" title="Refresh">
+<span class="material-symbols-outlined text-[18px]">sync</span>
+</button>
+<button class="flex items-center gap-1 text-on-surface-variant hover:text-on-surface neo-btn p-2 rounded-full ml-2" id="theme-toggle">
+<span class="material-symbols-outlined text-[18px] dark:hidden">dark_mode</span>
+<span class="material-symbols-outlined text-[18px] hidden dark:block">light_mode</span>
+</button>
+</div>
+</header>
+
+<main class="flex-1 mt-16 px-6 py-8 grid grid-cols-12 gap-6 h-full overflow-hidden">
+<div class="col-span-12 grid grid-cols-4 gap-6 h-24">
+<div class="neo-surface p-3 flex flex-col justify-center relative overflow-hidden fade-in-up delay-100">
+<span class="font-mono-data uppercase mb-1" style="font-size: 11px; font-weight: 700; letter-spacing: 0.05em; color: var(--text-muted);">Balance</span>
+<div class="font-mono-data" style="font-size: 24px; line-height: 32px; letter-spacing: -0.01em; font-weight: 600; color: var(--text-main); transition: color 0.3s;" id="balance-val">—</div>
+<div class="font-mono-data text-on-surface-variant" style="font-size: 13px;" id="balance-usd">—</div>
+</div>
+<div class="neo-surface p-3 flex flex-col justify-center relative overflow-hidden fade-in-up delay-200">
+<span class="font-mono-data uppercase mb-1" style="font-size: 11px; font-weight: 700; letter-spacing: 0.05em; color: var(--text-muted);">P&amp;L Today</span>
+<div class="font-mono-data" id="pnl-val" style="font-size: 24px; line-height: 32px; letter-spacing: -0.01em; font-weight: 600;">—</div>
+<div class="font-mono-data" style="font-size: 13px;" id="pnl-usd">—</div>
+<div class="absolute bottom-0 left-0 w-full h-[3px] bg-secondary opacity-50" style="box-shadow: 0 0 8px var(--glow-secondary);" id="pnl-bar"></div>
+</div>
+<div class="neo-surface p-3 flex flex-col justify-center fade-in-up delay-300">
+<span class="font-mono-data uppercase mb-1" style="font-size: 11px; font-weight: 700; letter-spacing: 0.05em; color: var(--text-muted);">Win Rate</span>
+<div class="font-mono-data" style="font-size: 24px; line-height: 32px; letter-spacing: -0.01em; font-weight: 600; color: var(--text-main);" id="winrate-val">—</div>
+<div class="font-mono-data text-on-surface-variant" style="font-size: 13px;" id="winrate-sub">—</div>
+</div>
+<div class="neo-surface p-3 flex flex-col justify-center fade-in-up delay-400">
+<span class="font-mono-data uppercase mb-1" style="font-size: 11px; font-weight: 700; letter-spacing: 0.05em; color: var(--text-muted);">Bot Uptime</span>
+<div class="font-mono-data" style="font-size: 24px; line-height: 32px; letter-spacing: -0.01em; font-weight: 600; color: var(--text-main);" id="uptime-val">—</div>
+<div class="font-mono-data text-on-surface-variant" style="font-size: 13px; transition: color 0.3s;" id="uptime-sub">—</div>
+</div>
+</div>
+
+<div class="col-span-12 grid grid-cols-12 gap-6" style="height: calc(100vh - 280px);">
+<div class="col-span-7 neo-surface flex flex-col overflow-hidden p-2 fade-in-up delay-500">
+<div class="px-3 py-2 font-mono-data uppercase flex justify-between items-center mb-2" style="font-size: 11px; font-weight: 700; letter-spacing: 0.05em; color: var(--text-muted);">
+<span>Live Activity Feed</span>
+<span class="font-mono-data" style="font-size: 11px;" id="feed-stats">0 events</span>
+</div>
+<div class="flex-1 overflow-y-auto p-3 space-y-2 neo-surface-inset font-mono-data" style="font-size: 12px;" id="activity-feed"></div>
+</div>
+<div class="col-span-5 neo-surface flex flex-col overflow-hidden p-2 fade-in-up delay-600">
+<div class="px-3 py-2 font-mono-data uppercase mb-2" style="font-size: 11px; font-weight: 700; letter-spacing: 0.05em; color: var(--text-muted);">Trade Log</div>
+<div class="flex-1 overflow-y-auto neo-surface-inset p-2">
+<table class="w-full text-left font-mono-data border-collapse" style="font-size: 12px;">
+<thead class="text-on-surface-variant sticky top-0 z-10" style="background-color: var(--bg); font-weight: 500;">
+<tr><th class="px-3 py-2 font-medium w-8">#</th><th class="px-3 py-2 font-medium">Time</th><th class="px-3 py-2 font-medium">Pair</th><th class="px-3 py-2 font-medium text-right">P&amp;L</th></tr>
+</thead>
+<tbody class="text-on-surface" id="trade-log"></tbody>
+</table>
+</div>
+<div class="h-16 mt-2 p-3 flex flex-col justify-center">
+<div class="flex justify-between font-mono-data mb-1" style="font-size: 10px; color: var(--text-muted);">
+<span id="wins-count">Wins: 0</span><span id="losses-count">Losses: 0</span>
+</div>
+<div class="w-full h-2 neo-surface-inset rounded-full overflow-hidden flex" id="winloss-bar">
+<div class="h-full" id="win-bar" style="width: 50%; background-color: var(--color-secondary); box-shadow: 0 0 8px var(--glow-secondary);"></div>
+<div class="h-full" id="loss-bar" style="width: 50%; background-color: var(--color-error); box-shadow: 0 0 8px var(--glow-error);"></div>
+</div>
+</div>
+</div>
+</div>
+</main>
+
+<footer class="fixed bottom-0 w-full z-50 flex justify-between items-center px-6 py-1 h-10 neo-surface fade-in-up delay-600" style="border-radius: 0; box-shadow: 0 -4px 8px var(--shadow-dark);">
+<div class="text-on-surface-variant truncate max-w-2xl" style="font-size: 11px;" id="footer-explainer">
+Loading status…
+</div>
+<div class="flex items-center gap-4 font-mono-data" style="font-size: 11px; color: var(--text-muted);" id="footer-stats">
+<span>WS reconnects: —</span>
+<span id="ws-mode">—</span>
+<span id="msgs-sec">— msgs/sec</span>
+<span class="text-on-surface-variant">© 2024 damascus_laundry terminal</span>
+</div>
+</footer>
+
+<script>
+const API = "";  // same-origin
+const els = {
+    balVal: document.getElementById('balance-val'),
+    balUsd: document.getElementById('balance-usd'),
+    pnlVal: document.getElementById('pnl-val'),
+    pnlUsd: document.getElementById('pnl-usd'),
+    pnlBar: document.getElementById('pnl-bar'),
+    wrVal: document.getElementById('winrate-val'),
+    wrSub: document.getElementById('winrate-sub'),
+    upVal: document.getElementById('uptime-val'),
+    upSub: document.getElementById('uptime-sub'),
+    statDot: document.getElementById('status-dot'),
+    statTxt: document.getElementById('status-text'),
+    feed: document.getElementById('activity-feed'),
+    feedStats: document.getElementById('feed-stats'),
+    tradeLog: document.getElementById('trade-log'),
+    winsCount: document.getElementById('wins-count'),
+    lossesCount: document.getElementById('losses-count'),
+    winBar: document.getElementById('win-bar'),
+    lossBar: document.getElementById('loss-bar'),
+    footer: document.getElementById('footer-explainer'),
+    msgsSec: document.getElementById('msgs-sec'),
+    wsMode: document.getElementById('ws-mode'),
+    btnStart: document.getElementById('btn-start'),
+    btnStop: document.getElementById('btn-stop'),
+    btnSeed: document.getElementById('btn-seed'),
+    btnRefresh: document.getElementById('btn-refresh'),
+    btnOpt: document.getElementById('mode-optimistic'),
+    btnReal: document.getElementById('mode-realistic'),
+};
+const COLOR = {
+    sec: getComputedStyle(document.documentElement).getPropertyValue('--color-secondary') || '#42e09a',
+    err: getComputedStyle(document.documentElement).getPropertyValue('--color-error') || '#ffb4ab',
+};
+
+let lastSnapshot = null;
+let lastTradeCount = 0;
+
+async function api(path, opts) {
+    const r = await fetch(API + path, Object.assign({ headers: {} }, opts || {}));
+    if (!r.ok) throw new Error(path + ' -> ' + r.status);
+    return r.json();
+}
+
+function fmtLamports(l) {
+    if (l == null) return '—';
+    const v = (l / 1e9);
+    return (v >= 0 ? '+' : '') + v.toFixed(9) + ' SOL';
+}
+function fmtUSD(sol, usd) {
+    if (sol == null || usd == null) return '—';
+    return '$' + usd.toFixed(2);
+}
+function flash(el) {
+    if (!el) return;
+    el.classList.remove('number-flash');
+    void el.offsetWidth;
+    el.classList.add('number-flash');
+}
+function uptimeStr(seconds) {
+    if (seconds == null) return '—';
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+function paint(snap) {
+    if (!snap) return;
+    lastSnapshot = snap;
+    const running = snap.running;
+    const bal = snap.balance_lamports || 0;
+    const pnl = snap.pnl_lamports || 0;
+    const start = snap.starting_lamports || 0;
+    const usd = snap.sol_usd;
+
+    // Status
+    if (running) {
+        els.statDot.style.background = 'var(--color-secondary)';
+        els.statDot.classList.add('pulse-active');
+        els.statTxt.textContent = 'Live — bot running';
+    } else {
+        els.statDot.style.background = 'var(--text-muted)';
+        els.statDot.classList.remove('pulse-active');
+        els.statTxt.textContent = 'Bot stopped';
+    }
+
+    // Balance
+    const newBalStr = (bal / 1e9).toFixed(9) + ' SOL';
+    if (els.balVal.textContent !== newBalStr) {
+        els.balVal.textContent = newBalStr;
+        flash(els.balVal);
+    }
+    els.balUsd.textContent = usd ? '$' + ((bal / 1e9) * usd).toFixed(2) : '—';
+
+    // P&L
+    const pnlSol = pnl / 1e9;
+    const pnlColor = pnl >= 0 ? 'var(--color-secondary)' : 'var(--color-error)';
+    const pnlStr = (pnl >= 0 ? '+' : '') + pnlSol.toFixed(9) + ' SOL';
+    if (els.pnlVal.textContent !== pnlStr) {
+        els.pnlVal.textContent = pnlStr;
+        els.pnlVal.style.color = pnlColor;
+        flash(els.pnlVal);
+    }
+    els.pnlUsd.textContent = usd ? (pnl >= 0 ? '+' : '') + '$' + (Math.abs(pnlSol) * usd).toFixed(2) : '—';
+    els.pnlUsd.style.color = pnlColor;
+    els.pnlBar.style.background = pnlColor;
+    els.pnlBar.style.boxShadow = pnl >= 0 ? '0 0 8px var(--glow-secondary)' : '0 0 8px var(--glow-error)';
+
+    // Win rate
+    const wr = snap.trades_total > 0 ? snap.win_rate : 0;
+    els.wrVal.textContent = wr.toFixed(1) + '%';
+    els.wrSub.textContent = `${snap.wins}/${snap.trades_total} trades`;
+
+    // Uptime / last trade
+    const trades = (snap.wallet && snap.wallet.trades) || [];
+    if (trades.length > 0) {
+        const lastTs = trades[trades.length - 1].ts_unix_ms || 0;
+        const ageSec = Math.max(0, Math.floor((Date.now() - lastTs) / 1000));
+        els.upSub.textContent = `last trade ${ageSec}s ago`;
+    } else {
+        els.upSub.textContent = 'no trades yet';
+    }
+    if (running) {
+        els.upVal.textContent = 'live';
+        els.upVal.style.color = 'var(--color-secondary)';
+    } else {
+        els.upVal.textContent = 'stopped';
+        els.upVal.style.color = 'var(--text-muted)';
+    }
+
+    // Buttons
+    els.btnStart.disabled = running;
+    els.btnStop.disabled = !running;
+
+    // Footer
+    const mode = snap.mode || 'optimistic';
+    els.footer.innerHTML = mode === 'realistic'
+        ? '<b style="color: var(--color-secondary);">REALISTIC</b> mode: 30% random win rate; losing trades burn the 10k-lamport Jito tip. Honest paper PnL tracking.'
+        : '<b style="color: var(--color-primary);">OPTIMISTIC</b> mode: every detected cycle wins (best case). Use for visualization only.';
+
+    // Trade log (only the last 30)
+    if (trades.length !== lastTradeCount) {
+        lastTradeCount = trades.length;
+        const recent = trades.slice(-30).reverse();
+        els.tradeLog.innerHTML = recent.map((t, i) => {
+            const isWin = t.profit_lamports > 0;
+            const c = isWin ? 'var(--color-secondary)' : 'var(--color-error)';
+            const pref = isWin ? '+' : '';
+            const sol = (t.profit_lamports / 1e9).toFixed(6);
+            const ts = new Date(t.ts_unix_ms).toISOString().substring(11, 19);
+            return `<tr class="table-row-hover slide-in-top">
+                <td class="px-3 py-1.5 text-on-surface-variant">${trades.length - i}</td>
+                <td class="px-3 py-1.5">${ts}</td>
+                <td class="px-3 py-1.5 text-on-surface-variant">${t.pair || '—'}</td>
+                <td class="px-3 py-1.5 text-right" style="color: ${c};">${pref}${sol}</td>
+            </tr>`;
+        }).join('');
+    }
+
+    // Wins/losses bar
+    const total = snap.wins + snap.losses;
+    if (total > 0) {
+        const wPct = (snap.wins / total * 100).toFixed(1);
+        const lPct = (snap.losses / total * 100).toFixed(1);
+        els.winBar.style.width = wPct + '%';
+        els.lossBar.style.width = lPct + '%';
+        els.winsCount.textContent = `Wins: ${snap.wins} (${wPct}%)`;
+        els.lossesCount.textContent = `Losses: ${snap.losses} (${lPct}%)`;
+    }
+
+    // Activity feed (from log tail, classified)
+    const lines = snap.log_tail || [];
+    els.feedStats.textContent = `${lines.length} events`;
+    els.feed.innerHTML = lines.slice(-40).reverse().map(line => {
+        const isErr = /error|fail|reject|disconnect/i.test(line);
+        const isOk = /cycle detected|trade|connected/i.test(line);
+        const icon = isErr ? '<span class="material-symbols-outlined" style="font-size:14px;color:var(--color-error);">cancel</span>'
+            : isOk ? '<span class="material-symbols-outlined" style="font-size:14px;color:var(--color-secondary);">check_circle</span>'
+            : '<span class="material-symbols-outlined" style="font-size:14px;color:var(--text-muted);">info</span>';
+        const ts = line.match(/\d{2}:\d{2}:\d{2}/)?.[0] || '—';
+        const cleaned = line.replace(/\x1b\[[0-9;]*m/g, '').substring(0, 140);
+        return `<div class="flex items-center gap-3 p-2 rounded group feed-item-hover">
+            ${icon}
+            <span class="text-on-surface-variant w-16 text-right">${ts}</span>
+            <span class="text-on-surface flex-1 truncate">${escapeHtml(cleaned)}</span>
+        </div>`;
+    }).join('');
+}
+
+function escapeHtml(s) {
+    return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+async function refresh() {
+    try {
+        const snap = await api('/api/snapshot');
+        paint(snap);
+    } catch (e) {
+        els.statTxt.textContent = 'disconnected — is the server running?';
+    }
+}
+
+async function applyMode(mode) {
+    try {
+        const r = await api('/api/mode', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ mode }) });
+        if (r.ok) await refresh();
+    } catch (e) { /* ignore */ }
+}
+
+async function startBot() {
+    els.statTxt.textContent = 'starting…';
+    try { await api('/api/start', { method: 'POST' }); } catch (e) { /* ignore */ }
+    setTimeout(refresh, 1000);
+    setTimeout(refresh, 5000);
+}
+
+async function stopBot() {
+    els.statTxt.textContent = 'stopping…';
+    try { await api('/api/stop', { method: 'POST' }); } catch (e) { /* ignore */ }
+    setTimeout(refresh, 1000);
+    setTimeout(refresh, 5000);
+}
+
+async function seedWallet() {
+    const v = prompt('Reset wallet to how many SOL?', '1.0');
+    if (!v) return;
+    const sol = parseFloat(v);
+    if (isNaN(sol) || sol <= 0) return;
+    try {
+        await api('/api/seed', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ sol }) });
+        await refresh();
+    } catch (e) { /* ignore */ }
+}
+
+// Wire buttons
+document.getElementById('theme-toggle').addEventListener('click', () => {
+    document.documentElement.classList.toggle('dark');
+    document.documentElement.classList.toggle('light');
+});
+els.btnStart.addEventListener('click', startBot);
+els.btnStop.addEventListener('click', stopBot);
+els.btnRefresh.addEventListener('click', refresh);
+els.btnSeed.addEventListener('click', seedWallet);
+els.btnOpt.addEventListener('click', () => applyMode('optimistic'));
+els.btnReal.addEventListener('click', () => applyMode('realistic'));
+
+// Initial fetch + polling
+refresh();
+setInterval(refresh, 1500);
+setInterval(() => {
+    // Repaint just the last-trade-age label every second
+    if (lastSnapshot) {
+        const trades = (lastSnapshot.wallet && lastSnapshot.wallet.trades) || [];
+        if (trades.length > 0) {
+            const age = Math.floor((Date.now() - (trades[trades.length-1].ts_unix_ms || 0)) / 1000);
+            els.upSub.textContent = `last trade ${age}s ago`;
+        }
+    }
+}, 1000);
+</script>
+</body></html>

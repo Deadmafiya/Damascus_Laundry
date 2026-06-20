@@ -1,0 +1,255 @@
+#!/usr/bin/env python3
+"""
+damascus_laundry dashboard launcher.
+
+Usage:  ./damascus_laundry_dashboard [--port N]
+
+Starts a tiny HTTP server that serves the dashboard HTML and proxies
+JSON reads to wallet.json + wallet.cycles.jsonl on every poll.
+
+Action buttons (Start/Stop/Seed/Mode) call shell out to the existing
+scripts/.
+"""
+import argparse
+import http.server
+import json
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+from urllib.parse import urlparse
+
+REPO = Path(__file__).resolve().parent
+WALLET = REPO / "wallet.json"
+CYCLES = REPO / "wallet.cycles.jsonl"
+PID = REPO / "trader.pid"
+LOG = REPO / "trader.log"
+SCRIPTS = REPO / "scripts"
+
+
+def sol_usd():
+    try:
+        out = subprocess.check_output(
+            ["curl", "-sf", "--max-time", "3",
+             "https://api.coinbase.com/v2/prices/SOL-USD/spot"],
+            stderr=subprocess.DEVNULL, timeout=3,
+        )
+        return float(json.loads(out)["data"]["amount"])
+    except Exception:
+        return None
+
+
+def lamports_to_sol(l):
+    return l / 1_000_000_000
+
+
+def read_wallet():
+    if not WALLET.exists():
+        return None
+    try:
+        with WALLET.open() as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+def read_log_tail(n=80):
+    if not LOG.exists():
+        return []
+    try:
+        with LOG.open("rb") as f:
+            try:
+                f.seek(0, 2)
+                size = f.tell()
+                f.seek(max(0, size - 32_000), 0)
+                lines = f.read().decode(errors="replace").splitlines()
+            except Exception:
+                lines = LOG.read_text(errors="replace").splitlines()
+        return lines[-n:]
+    except Exception:
+        return []
+
+
+def is_running():
+    if not PID.exists():
+        return False
+    try:
+        pid = int(PID.read_text().strip())
+        os.kill(pid, 0)
+        return True
+    except (ValueError, OSError):
+        return False
+
+
+def api_snapshot():
+    w = read_wallet() or {}
+    bal = int(w.get("balance_lamports", 0))
+    start = int(w.get("starting_balance_lamports", 0))
+    trades = w.get("trades", []) or []
+    wins = sum(1 for t in trades if t.get("profit_lamports", 0) > 0)
+    losses = len(trades) - wins
+    pnl = bal - start
+    pxs = sol_usd()
+    return {
+        "running": is_running(),
+        "wallet": w,
+        "balance_lamports": bal,
+        "balance_sol": lamports_to_sol(bal),
+        "starting_lamports": start,
+        "pnl_lamports": pnl,
+        "pnl_sol": lamports_to_sol(pnl),
+        "sol_usd": pxs,
+        "balance_usd": (lamports_to_sol(bal) * pxs) if pxs else None,
+        "pnl_usd": (lamports_to_sol(pnl) * pxs) if pxs else None,
+        "trades_total": len(trades),
+        "wins": wins,
+        "losses": losses,
+        "win_rate": (wins / len(trades) * 100.0) if trades else 0.0,
+        "log_tail": read_log_tail(60),
+        "ts": int(time.time() * 1000),
+    }
+
+
+def run_script(name, *args):
+    p = SCRIPTS / name
+    if not p.exists():
+        return {"ok": False, "error": f"script not found: {p}"}
+    try:
+        out = subprocess.check_output(
+            [str(p), *args], stderr=subprocess.STDOUT, timeout=10
+        )
+        return {"ok": True, "output": out.decode(errors="replace")}
+    except subprocess.CalledProcessError as e:
+        return {"ok": False, "error": e.output.decode(errors="replace")}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def read_env():
+    env_path = REPO / ".env"
+    if not env_path.exists():
+        return {}
+    out = {}
+    for line in env_path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, _, v = line.partition("=")
+        out[k.strip()] = v.strip().strip('"').strip("'")
+    return out
+
+
+def write_env_mode(mode):
+    env_path = REPO / ".env"
+    if not env_path.exists():
+        return False
+    lines = env_path.read_text().splitlines()
+    out = []
+    seen = False
+    for line in lines:
+        if line.startswith("DL_PAPER_MODE="):
+            out.append(f"DL_PAPER_MODE={mode}")
+            seen = True
+        else:
+            out.append(line)
+    if not seen:
+        out.append(f"DL_PAPER_MODE={mode}")
+    env_path.write_text("\n".join(out) + "\n")
+    return True
+
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    def log_message(self, *args, **kw):
+        pass
+
+    def _send_json(self, obj, status=200):
+        body = json.dumps(obj).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _send_html(self, body):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self):
+        path = urlparse(self.path).path
+        if path == "/" or path == "/index.html":
+            html = (REPO / "dashboard" / "index.html").read_bytes()
+            self._send_html(html)
+        elif path == "/api/snapshot":
+            self._send_json(api_snapshot())
+        elif path == "/api/cycles":
+            data = []
+            if CYCLES.exists():
+                for line in CYCLES.read_text().splitlines()[-200:]:
+                    try:
+                        data.append(json.loads(line))
+                    except Exception:
+                        pass
+            self._send_json({"cycles": data, "count": len(data)})
+        elif path == "/api/env":
+            env = read_env()
+            self._send_json({
+                "DL_LIVE_MODE": env.get("DL_LIVE_MODE", "unset"),
+                "DL_PAPER_MODE": env.get("DL_PAPER_MODE", "optimistic"),
+                "DL_LIVE_WS_URL": env.get("DL_LIVE_WS_URL", ""),
+                "DL_LIVE_POOL_PUBKEYS": env.get("DL_LIVE_POOL_PUBKEYS", ""),
+                "DL_LIVE_DURATION_SECS": env.get("DL_LIVE_DURATION_SECS", "3600"),
+            })
+        else:
+            self.send_error(404)
+
+    def do_POST(self):
+        path = urlparse(self.path).path
+        length = int(self.headers.get("Content-Length", "0") or "0")
+        raw = self.rfile.read(length) if length else b"{}"
+        try:
+            body = json.loads(raw.decode() or "{}")
+        except Exception:
+            body = {}
+        if path == "/api/start":
+            self._send_json(run_script("start_paper_trader.sh"))
+        elif path == "/api/stop":
+            self._send_json(run_script("stop_paper_trader.sh"))
+        elif path == "/api/seed":
+            sol = float(body.get("sol", 1.0))
+            self._send_json(run_script("seed_wallet.sh", f"{sol}"))
+        elif path == "/api/mode":
+            mode = body.get("mode", "optimistic")
+            if mode not in ("optimistic", "realistic"):
+                self._send_json({"ok": False, "error": "invalid mode"}, 400)
+                return
+            ok = write_env_mode(mode)
+            self._send_json({"ok": ok, "mode": mode})
+        elif path == "/api/refresh":
+            self._send_json(api_snapshot())
+        else:
+            self.send_error(404)
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--port", type=int, default=8765)
+    ap.add_argument("--host", default="127.0.0.1")
+    args = ap.parse_args()
+    server = http.server.ThreadingHTTPServer((args.host, args.port), Handler)
+    url = f"http://{args.host}:{args.port}/"
+    print(f"damascus_laundry dashboard: {url}")
+    print("Press Ctrl-C to stop.")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nstopped.")
+
+
+if __name__ == "__main__":
+    main()
