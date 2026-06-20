@@ -14,9 +14,33 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --no-browser) OPEN_BROWSER=0; shift ;;
         --port) PORT="${2:-8765}"; shift 2 ;;
+        --kill-orphans) KILL_ORPHANS=1; shift ;;
         *) echo "unknown arg: $1" >&2; exit 2 ;;
     esac
 done
+
+# Kill any orphaned dashboard servers from previous Ctrl-C or kill
+# invocations. Look for our exact binary path, not just "python3"
+# (which would also kill the user's other Python processes).
+if command -v pgrep >/dev/null 2>&1; then
+    ORPHANS=$(pgrep -f "damascus_laundry_dashboard --port" 2>/dev/null || true)
+    if [[ -n "${ORPHANS:-}" ]]; then
+        echo "killing orphan dashboard processes: $ORPHANS"
+        # shellcheck disable=SC2086
+        kill -TERM $ORPHANS 2>/dev/null || true
+        sleep 0.5
+        # If still alive, force-kill
+        ORPHANS2=$(pgrep -f "damascus_laundry_dashboard --port" 2>/dev/null || true)
+        if [[ -n "${ORPHANS2:-}" ]]; then
+            # shellcheck disable=SC2086
+            kill -KILL $ORPHANS2 2>/dev/null || true
+        fi
+    fi
+fi
+# Also free the port if anything else is holding it
+if command -v fuser >/dev/null 2>&1; then
+    fuser -k "${PORT}/tcp" 2>/dev/null || true
+fi
 
 # Pre-launch the browser on the first request. We do this in
 # parallel with the server starting so the user sees the page

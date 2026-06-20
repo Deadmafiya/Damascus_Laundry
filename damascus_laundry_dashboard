@@ -212,6 +212,13 @@ def write_env_mode(mode):
     return True
 
 
+class ReusableTCPServer(http.server.ThreadingHTTPServer):
+    """Bind with SO_REUSEADDR so the server can rebind immediately
+    after Ctrl-C (which leaves the port in TIME_WAIT for ~60s)."""
+    allow_reuse_address = True
+    allow_reuse_port = True
+
+
 class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *args, **kw):
         pass
@@ -299,7 +306,7 @@ def main():
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--host", default="127.0.0.1")
     args = ap.parse_args()
-    server = http.server.ThreadingHTTPServer((args.host, args.port), Handler)
+    server = ReusableTCPServer((args.host, args.port), Handler)
     url = f"http://{args.host}:{args.port}/"
     print(f"damascus_laundry dashboard: {url}")
     print("Press Ctrl-C to stop.")
