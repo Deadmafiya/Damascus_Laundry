@@ -60,8 +60,8 @@ html.light .feed-item-hover:hover { background-color: rgba(0, 0, 0, 0.05); }
     <div id="status-dot" class="w-2 h-2 rounded-full bg-outline"></div>
     <span class="font-mono-data" id="status-text">Loading…</span>
     <span class="w-px h-4 bg-outline opacity-30"></span>
-    <span class="font-mono-data flex items-center gap-1" id="rpc-latency" title="Round-trip latency to your QuickNode/Helius endpoint">
-        <span class="material-symbols-outlined" style="font-size:14px;">speed</span>
+    <span class="font-mono-data flex items-center gap-1" id="rpc-latency" title="Submission-to-landing latency, the network leg of submit-to-confirm. This is the only latency that affects MEV win rate.">
+        <span class="material-symbols-outlined" style="font-size:14px;">rocket_launch</span>
         <span id="rpc-latency-val">— ms</span>
     </span>
 </div>
@@ -240,7 +240,8 @@ function paint(snap) {
         els.statTxt.textContent = 'Bot stopped';
     }
 
-    // RPC e2e latency
+    // RPC submission-to-landing latency (the only latency that
+    // matters for MEV win rate). Median of last 10 no-op probes.
     const rpcLat = document.getElementById('rpc-latency-val');
     if (rpcLat && snap.rpc) {
         const ms = snap.rpc.latency_ms;
@@ -248,14 +249,16 @@ function paint(snap) {
             rpcLat.textContent = '— ms';
             rpcLat.style.color = 'var(--text-muted)';
         } else {
-            // Color-code: green <80ms, amber <200ms, red >=200ms.
-            const color = ms < 80 ? 'var(--color-secondary)'
-                          : ms < 200 ? 'var(--color-warning, #ffb547)'
+            // Green if submission-leg RTT is < 500ms (Jito-friendly).
+            // Amber if < 800ms (likely slot-1 land).
+            // Red if >= 800ms (likely slot-2+ land, no MEV).
+            const color = ms < 500 ? 'var(--color-secondary)'
+                          : ms < 800 ? 'var(--color-warning, #ffb547)'
                           : 'var(--color-error)';
             rpcLat.textContent = `${ms} ms`;
             rpcLat.style.color = color;
-            const title = `Round-trip latency to ${snap.rpc.endpoint || 'RPC'} (kind: ${snap.rpc.kind})`;
-            rpcLat.parentElement.title = title;
+            const detail = `Submission-to-landing latency, rolling median of ${snap.rpc.history_size || 10} probes (${snap.rpc.probes_completed || 0} completed, ${snap.rpc.probes_failed || 0} failed). ${snap.rpc.status || ''}.`;
+            rpcLat.parentElement.title = detail;
         }
     }
 

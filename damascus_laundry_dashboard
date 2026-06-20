@@ -22,6 +22,7 @@ import time
 import urllib.request
 import urllib.error
 from pathlib import Path
+from typing import Optional
 from urllib.parse import urlparse
 
 REPO = Path(__file__).resolve().parent
@@ -31,70 +32,50 @@ PID = REPO / "trader.pid"
 LOG = REPO / "trader.log"
 SCRIPTS = REPO / "scripts"
 
-# Cache the last e2e probe so the dashboard gets a fresh value even
-# when the bot is stopped (in which case we still ping the user's
-# QuickNode endpoint to show the network latency).
-_LAST_PING = {"endpoint": None, "latency_ms": None, "ts_ms": 0}
-_PING_CACHE_MS = 4000  # re-ping at most every 4 seconds
+# Submission-to-landing latency probe. The probe sends real
+# sendTransaction + getSignatureStatuses calls every probe_interval_s
+# and times the round-trip — the network leg of submit-to-confirm,
+# which is what determines MEV win rate. Set DL_PROBE_ENABLED=0 to
+# disable.
+from latency_probe import LatencyProbe, _read_endpoint_from_env, _wss_to_https
+
+_LATENCY_PROBE: Optional[LatencyProbe] = None
+_LAST_PROBE_TICK_MS = 0
+_PROBE_INTERVAL_MS = 4000  # 4s probe cadence; the probe itself is ~700ms
+_LATENCY_HISTORY: list[int] = []  # legacy fallback cache (unused)
 
 
-def _http_latency_ms(url: str, timeout: float = 2.5) -> int:
-    """Round-trip latency to a Solana RPC endpoint via a tiny
-    getHealth call. Returns -1 on failure."""
-    try:
-        body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "getHealth"}).encode()
-        req = urllib.request.Request(url, data=body, headers={
-            "Content-Type": "application/json",
-        })
-        t0 = time.perf_counter()
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            resp.read(64)
-        return int((time.perf_counter() - t0) * 1000)
-    except Exception:
-        return -1
-
-
-def _tcp_latency_ms(host: str, port: int, timeout: float = 2.5) -> int:
-    """TCP-connect latency to the WSS endpoint's host:port. Used
-    as a fallback when the RPC endpoint doesn't support HTTP
-    probes (rare for free tiers, but happens)."""
-    try:
-        t0 = time.perf_counter()
-        with socket.create_connection((host, port), timeout=timeout):
-            pass
-        return int((time.perf_counter() - t0) * 1000)
-    except Exception:
-        return -1
-
-
-def rpc_latency_ms() -> dict:
-    """Probe the user's QuickNode/Helius endpoint. Returns a dict
-    with endpoint, latency_ms, kind ('https' or 'tcp'), and ts_ms.
-
-    Strategy: try an HTTP POST getHealth to the WSS endpoint
-    (QuickNode accepts HTTP on the same URL); if that fails,
-    fall back to a TCP connect-time probe.
-    """
-    env = read_env()
-    wss = env.get("DL_LIVE_WS_URL", "").strip()
-    now = int(time.time() * 1000)
+def _ensure_probe() -> Optional[LatencyProbe]:
+    global _LATENCY_PROBE
+    if _LATENCY_PROBE is not None:
+        return _LATENCY_PROBE
+    enabled = os.environ.get("DL_PROBE_ENABLED", "1") != "0"
+    if not enabled:
+        return None
+    wss = _read_endpoint_from_env(REPO / ".env")
     if not wss:
-        return {"endpoint": "(unset)", "latency_ms": None, "kind": "none", "ts_ms": now}
-    if _LAST_PING["endpoint"] == wss and (now - _LAST_PING["ts_ms"]) < _PING_CACHE_MS:
-        return {"endpoint": wss, "latency_ms": _LAST_PING["latency_ms"],
-                "kind": "cached", "ts_ms": _LAST_PING["ts_ms"]}
+        return None
+    https_url = _wss_to_https(wss)
+    interval_s = float(os.environ.get("DL_PROBE_INTERVAL_S", "4"))
+    _LATENCY_PROBE = LatencyProbe(
+        rpc_url=https_url,
+        interval_s=interval_s,
+        enabled=True,
+    )
+    return _LATENCY_PROBE
 
-    parsed = urlparse(wss)
-    host = parsed.hostname or ""
-    port = parsed.port or (443 if parsed.scheme == "wss" else 80)
-    https_url = f"https://{host}{':' + str(port) if port not in (443, 80) else ''}/"
-    ms = _http_latency_ms(https_url)
-    kind = "https"
-    if ms < 0:
-        ms = _tcp_latency_ms(host, port)
-        kind = "tcp"
-    _LAST_PING.update({"endpoint": wss, "latency_ms": ms, "ts_ms": now})
-    return {"endpoint": wss, "latency_ms": ms, "kind": kind, "ts_ms": now}
+
+def _maybe_tick_probe() -> None:
+    """Run a probe at most once per _PROBE_INTERVAL_MS. No-op if disabled."""
+    global _LAST_PROBE_TICK_MS
+    probe = _ensure_probe()
+    if probe is None:
+        return
+    now_ms = int(time.time() * 1000)
+    if now_ms - _LAST_PROBE_TICK_MS < _PROBE_INTERVAL_MS:
+        return
+    _LAST_PROBE_TICK_MS = now_ms
+    probe.tick(force=False)
 
 
 def sol_usd():
@@ -160,6 +141,8 @@ def api_snapshot():
     losses = len(trades) - wins
     pnl = bal - start
     pxs = sol_usd()
+    _maybe_tick_probe()
+    snap = _LATENCY_PROBE.snapshot() if _LATENCY_PROBE else {"endpoint": "(unset)", "latency_ms": None}
     return {
         "running": is_running(),
         "wallet": w,
@@ -176,7 +159,7 @@ def api_snapshot():
         "losses": losses,
         "win_rate": (wins / len(trades) * 100.0) if trades else 0.0,
         "log_tail": read_log_tail(60),
-        "rpc": rpc_latency_ms(),
+        "rpc": snap,
         "ts": int(time.time() * 1000),
     }
 
@@ -302,6 +285,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._send_json({"ok": ok, "mode": mode})
         elif path == "/api/refresh":
             self._send_json(api_snapshot())
+        elif path == "/api/probe":
+            enabled = bool(body.get("enabled", True))
+            if _LATENCY_PROBE is not None:
+                _LATENCY_PROBE.enabled = enabled
+            self._send_json({"ok": True, "enabled": enabled})
         else:
             self.send_error(404)
 
