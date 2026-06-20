@@ -56,9 +56,14 @@ html.light .feed-item-hover:hover { background-color: rgba(0, 0, 0, 0.05); }
 <span class="font-mono-data text-base font-bold tracking-tighter" style="color: var(--color-primary);">damascus_laundry</span>
 <span class="text-on-surface-variant font-mono-data text-[10px] px-2 py-0.5 neo-surface-inset" id="version-pill">v1.1.7</span>
 </div>
-<div class="flex items-center gap-2 text-sm text-on-surface-variant px-4 py-2 neo-surface-inset" id="status-pill">
-<div id="status-dot" class="w-2 h-2 rounded-full bg-outline"></div>
-<span class="font-mono-data" id="status-text">Loading…</span>
+<div class="flex items-center gap-3 text-sm text-on-surface-variant px-4 py-2 neo-surface-inset" id="status-pill">
+    <div id="status-dot" class="w-2 h-2 rounded-full bg-outline"></div>
+    <span class="font-mono-data" id="status-text">Loading…</span>
+    <span class="w-px h-4 bg-outline opacity-30"></span>
+    <span class="font-mono-data flex items-center gap-1" id="rpc-latency" title="Round-trip latency to your QuickNode/Helius endpoint">
+        <span class="material-symbols-outlined" style="font-size:14px;">speed</span>
+        <span id="rpc-latency-val">— ms</span>
+    </span>
 </div>
 <div class="flex items-center gap-3">
 <button class="text-on-surface-variant px-4 py-1.5 font-medium text-base neo-btn" id="btn-start">Start</button>
@@ -233,6 +238,25 @@ function paint(snap) {
         els.statDot.style.background = 'var(--text-muted)';
         els.statDot.classList.remove('pulse-active');
         els.statTxt.textContent = 'Bot stopped';
+    }
+
+    // RPC e2e latency
+    const rpcLat = document.getElementById('rpc-latency-val');
+    if (rpcLat && snap.rpc) {
+        const ms = snap.rpc.latency_ms;
+        if (ms == null || ms < 0) {
+            rpcLat.textContent = '— ms';
+            rpcLat.style.color = 'var(--text-muted)';
+        } else {
+            // Color-code: green <80ms, amber <200ms, red >=200ms.
+            const color = ms < 80 ? 'var(--color-secondary)'
+                          : ms < 200 ? 'var(--color-warning, #ffb547)'
+                          : 'var(--color-error)';
+            rpcLat.textContent = `${ms} ms`;
+            rpcLat.style.color = color;
+            const title = `Round-trip latency to ${snap.rpc.endpoint || 'RPC'} (kind: ${snap.rpc.kind})`;
+            rpcLat.parentElement.title = title;
+        }
     }
 
     // Balance

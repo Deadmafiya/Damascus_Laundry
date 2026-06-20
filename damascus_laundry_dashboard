@@ -14,9 +14,13 @@ import argparse
 import http.server
 import json
 import os
+import socket
+import statistics
 import subprocess
 import sys
 import time
+import urllib.request
+import urllib.error
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -26,6 +30,71 @@ CYCLES = REPO / "wallet.cycles.jsonl"
 PID = REPO / "trader.pid"
 LOG = REPO / "trader.log"
 SCRIPTS = REPO / "scripts"
+
+# Cache the last e2e probe so the dashboard gets a fresh value even
+# when the bot is stopped (in which case we still ping the user's
+# QuickNode endpoint to show the network latency).
+_LAST_PING = {"endpoint": None, "latency_ms": None, "ts_ms": 0}
+_PING_CACHE_MS = 4000  # re-ping at most every 4 seconds
+
+
+def _http_latency_ms(url: str, timeout: float = 2.5) -> int:
+    """Round-trip latency to a Solana RPC endpoint via a tiny
+    getHealth call. Returns -1 on failure."""
+    try:
+        body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "getHealth"}).encode()
+        req = urllib.request.Request(url, data=body, headers={
+            "Content-Type": "application/json",
+        })
+        t0 = time.perf_counter()
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            resp.read(64)
+        return int((time.perf_counter() - t0) * 1000)
+    except Exception:
+        return -1
+
+
+def _tcp_latency_ms(host: str, port: int, timeout: float = 2.5) -> int:
+    """TCP-connect latency to the WSS endpoint's host:port. Used
+    as a fallback when the RPC endpoint doesn't support HTTP
+    probes (rare for free tiers, but happens)."""
+    try:
+        t0 = time.perf_counter()
+        with socket.create_connection((host, port), timeout=timeout):
+            pass
+        return int((time.perf_counter() - t0) * 1000)
+    except Exception:
+        return -1
+
+
+def rpc_latency_ms() -> dict:
+    """Probe the user's QuickNode/Helius endpoint. Returns a dict
+    with endpoint, latency_ms, kind ('https' or 'tcp'), and ts_ms.
+
+    Strategy: try an HTTP POST getHealth to the WSS endpoint
+    (QuickNode accepts HTTP on the same URL); if that fails,
+    fall back to a TCP connect-time probe.
+    """
+    env = read_env()
+    wss = env.get("DL_LIVE_WS_URL", "").strip()
+    now = int(time.time() * 1000)
+    if not wss:
+        return {"endpoint": "(unset)", "latency_ms": None, "kind": "none", "ts_ms": now}
+    if _LAST_PING["endpoint"] == wss and (now - _LAST_PING["ts_ms"]) < _PING_CACHE_MS:
+        return {"endpoint": wss, "latency_ms": _LAST_PING["latency_ms"],
+                "kind": "cached", "ts_ms": _LAST_PING["ts_ms"]}
+
+    parsed = urlparse(wss)
+    host = parsed.hostname or ""
+    port = parsed.port or (443 if parsed.scheme == "wss" else 80)
+    https_url = f"https://{host}{':' + str(port) if port not in (443, 80) else ''}/"
+    ms = _http_latency_ms(https_url)
+    kind = "https"
+    if ms < 0:
+        ms = _tcp_latency_ms(host, port)
+        kind = "tcp"
+    _LAST_PING.update({"endpoint": wss, "latency_ms": ms, "ts_ms": now})
+    return {"endpoint": wss, "latency_ms": ms, "kind": kind, "ts_ms": now}
 
 
 def sol_usd():
@@ -107,6 +176,7 @@ def api_snapshot():
         "losses": losses,
         "win_rate": (wins / len(trades) * 100.0) if trades else 0.0,
         "log_tail": read_log_tail(60),
+        "rpc": rpc_latency_ms(),
         "ts": int(time.time() * 1000),
     }
 
