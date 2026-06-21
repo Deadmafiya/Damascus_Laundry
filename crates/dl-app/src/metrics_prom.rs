@@ -51,6 +51,30 @@ use crate::metrics::{MetricsRegistry, MetricsSnapshot};
 /// Prometheus exposition-format content type.
 pub const CONTENT_TYPE: &str = "text/plain; version=0.0.4; charset=utf-8";
 
+/// Render the dl-detect graph-layer stale-edge counter as a
+/// Prometheus counter line. DAM-44c: the graph-layer prune
+/// (`dl_detect::staleness::prune_stale_edges`) bumps
+/// `dl_detect::staleness::STALE_EDGES_PRUNED_TOTAL`; the
+/// dashboard reads it through this helper so the `/metrics`
+/// body surfaces the count alongside the feed-layer
+/// `feed_stale_pool_count`.
+///
+/// Read at `render` time (Prometheus pull model); no atomic
+/// increment / decrement churn is needed for the dashboard
+/// read path. Integer-only (the counter is `AtomicU64`).
+pub fn render_dl_state_metrics() -> String {
+    let v = dl_detect::staleness::STALE_EDGES_PRUNED_TOTAL
+        .load(std::sync::atomic::Ordering::Relaxed);
+    let mut out = String::new();
+    let _ = writeln!(
+        out,
+        "# HELP dl_state_stale_edges_pruned_total Edges dropped from the price graph by DAM-44c graph-level staleness prune"
+    );
+    let _ = writeln!(out, "# TYPE dl_state_stale_edges_pruned_total counter");
+    let _ = writeln!(out, "dl_state_stale_edges_pruned_total {v}");
+    out
+}
+
 /// Render a `LiveMetrics` snapshot (Phase 1d extension) as
 /// Prometheus summary lines for the landing-latency histogram.
 /// Returns the substring to append to a `/metrics` body.
@@ -305,5 +329,25 @@ mod tests {
         // interpolated between sorted[49]=250 and sorted[50]=255,
         // result = 250 + 0.5 * 5 = 252.5 → 252 (u64 cast).
         assert!(body.contains("dl_submission_to_landing_ms{quantile=\"0.5\"} 252"));
+    }
+
+    /// DAM-44c: `render_dl_state_metrics` emits the
+    /// `dl_state_stale_edges_pruned_total` counter line by
+    /// reading the `dl_detect::staleness::STALE_EDGES_PRUNED_TOTAL`
+    /// atomic. The render is a pure function of the counter's
+    /// current value; bump the counter, re-render, observe the
+    /// new value in the body.
+    #[test]
+    fn render_dl_state_metrics_emits_counter() {
+        use std::sync::atomic::Ordering;
+        let c = &dl_detect::staleness::STALE_EDGES_PRUNED_TOTAL;
+        let pre = c.load(Ordering::Relaxed);
+        c.store(17, Ordering::Relaxed);
+        let body = render_dl_state_metrics();
+        assert!(body.contains("# HELP dl_state_stale_edges_pruned_total"), "missing HELP line: {body}");
+        assert!(body.contains("# TYPE dl_state_stale_edges_pruned_total counter"), "missing TYPE line: {body}");
+        assert!(body.contains("dl_state_stale_edges_pruned_total 17"), "missing counter line: {body}");
+        // Restore so we don't leak state into other tests.
+        c.store(pre, Ordering::Relaxed);
     }
 }

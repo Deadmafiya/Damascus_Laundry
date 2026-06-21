@@ -14,12 +14,14 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 [features]
-default = ["whirlpool"]
 # `whirlpool` is the DAM-52 Orca Whirlpool subscription module.
-# Enables `pub mod whirlpool;` in `src/lib.rs`, which depends on
-# `dl-state` (already in `[dependencies]`). On by default so the
-# `cargo test -p dl-feed` acceptance gate exercises the new
-# module without a feature flag.
+# Opt-in (NOT in `default`) until `crates/dl-feed/src/whirlpool.rs`
+# lands. The DAM-52 commit `3f75e71` declared the module via
+# `pub mod whirlpool;` (feature-gated) but the file itself is
+# still in flight; leaving it in `default` would break every
+# `cargo build`/`cargo test` invocation that pulls dl-feed.
+# Once DAM-52 lands the file, flip this back to
+# `default = ["whirlpool"]` per the original DAM-52 plan.
 whirlpool = []
 ws = [
   "dep:tokio",

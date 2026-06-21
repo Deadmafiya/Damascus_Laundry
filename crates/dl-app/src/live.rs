@@ -544,6 +544,39 @@ pub fn eval_params_from_calibration(
     }
 }
 
+/// Replay a `CapturedFeed` JSONL file through the streaming detector
+/// and return every 3-leg cycle found. Used by
+/// `dl-app run --feed capture <path>` to drive off-line replay
+/// against the same code path the live WebSocket feed uses.
+///
+/// ## Status
+///
+/// **Stub.** The DAM-62 commit `3f04ee` added this function with
+/// a body that referenced `FeedEvent::PoolSnapshot`,
+/// `FeedEvent::WhirlpoolSnapshot`, `FeedEvent::WhirlpoolRealSnapshot`,
+/// `FeedEvent::SplTokenUpdate`, `dl_state::decoder::Pool`,
+/// `assemble_pool`, `assemble_whirlpool_pool`,
+/// `assemble_whirlpool_real_pool`, `decode_amm_info`,
+/// `decode_spl_token_account`, `decode_whirlpool`, and
+/// `decode_whirlpool_real` — none of which exist on disk in the
+/// state needed by this signature. The DAM-62 acceptance test
+/// (`dl-state/tests/dam62_orca_whirlpool_3leg.rs`) passes because
+/// it constructs types locally; the production path is unwired.
+///
+/// This stub preserves the public signature
+/// (`Result<Vec<Cycle>, String>`) and returns an empty vector so
+/// the build compiles. The function is **not a DAM-82 concern**;
+/// a follow-up DAM-98 / DAM-44c ticket will wire the body to the
+/// real `dl-feed::capture` JSONL format, the `dl_state::decoder`
+/// API, and the `dl_core::feed::FeedEvent` snapshot variants once
+/// those types land. Until then, callers that need cycles from a
+/// capture should use the local helpers in the DAM-62 / DAM-63
+/// test crates.
+pub fn cycles_from_capture(_path: &Path) -> Result<Vec<Cycle>, String> {
+    // Stub body — see module docs.
+    Ok(Vec::new())
+}
+
 #[cfg(test)]
 mod live_submit_tests {
     use super::*;

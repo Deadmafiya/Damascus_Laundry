@@ -24,6 +24,15 @@ use dl_recon_overfit::{
 };
 use dl_sim::ev::Prob;
 use serde::{Deserialize, Serialize};
+
+/// DAM-64 — ledger-first reconciliation consumer. Gated by the
+/// `dam64` cargo feature so the default build does not pull
+/// `dl-recon::reconcile`. Enable with `cargo build --features dam64`.
+#[cfg(feature = "dam64")]
+pub mod dam64;
+
+#[cfg(feature = "dam64")]
+pub use dam64::captures_from_reconciliation_report;
 /// `dl-calibration` requires `dl-recon-overfit` for the overfit
 /// guard (DSR + purged-CV). Phase 2 L5: `MIN_SAMPLES_FOR_FIT` here
 /// is the canonical value referenced by both

@@ -201,6 +201,7 @@ fn run_capture(rpc_url: &str, capture_path: &str, capture_secs: u64) {
         match tee.next_event() {
             Some(FeedEvent::Slot { .. }) => slots += 1,
             Some(FeedEvent::AccountUpdate { .. }) => accounts += 1,
+            Some(FeedEvent::Pool { .. } | FeedEvent::StalePoolHalt { .. }) => {}
             None => std::thread::sleep(Duration::from_millis(50)),
         }
     }
@@ -259,6 +260,7 @@ fn run_live_submit(
     use solana_sdk::hash::Hash;
     use solana_sdk::pubkey::Pubkey;
     use std::str::FromStr;
+    use std::sync::Mutex;
 
     let keyfile_path = match keyfile {
         Some(p) => p.to_string(),
@@ -384,9 +386,49 @@ fn run_live_submit(
 
     // Safety modules — default config (operators override via
     // env vars DL_DAILY_CAP_LAMPORTS etc before running).
-    let _cap_state = CapState::new(CapConfig::default());
+    //
+    // The cap state is rehydrated from a durable JSON snapshot
+    // (DAM-67 / Phase 3) so a crash mid-day does NOT reset the
+    // daily budget. The path is `DL_CAP_SNAPSHOT` (default
+    // `./dl-signer-cap-snapshot.json`). On first boot the file
+    // is created with a fresh zero-state; on every subsequent
+    // boot the prior `spent_today` is loaded back. A load
+    // failure refuses to boot (exit 2) rather than fall back
+    // to a fresh cap — refusing to risk a double-spend after
+    // crash recovery.
+    let cap_snapshot_path = std::env::var("DL_CAP_SNAPSHOT")
+        .unwrap_or_else(|_| "./dl-signer-cap-snapshot.json".to_string());
+    let cap_state = match CapState::load_or_init(
+        std::path::Path::new(&cap_snapshot_path),
+        CapConfig::default(),
+    ) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!(
+                "dl-app run --submit-live: cap snapshot load failed ({}); \
+                 refusing to start with a fresh cap — refusing to risk a \
+                 double-spend after crash recovery. Re-run with the snapshot \
+                 file intact or unset DL_CAP_SNAPSHOT to start from zero.",
+                e
+            );
+            std::process::exit(2);
+        }
+    };
+    eprintln!(
+        "dl-app run --submit-live: cap snapshot loaded from {} (spent_today={} lamports, remaining={} lamports)",
+        cap_snapshot_path,
+        cap_state.spent_today(),
+        cap_state.remaining()
+    );
+    // DAM-82: wrap the safety modules in `Arc<Mutex<>>` so the
+    // live_status writer (a side task that ticks at 1 Hz) can
+    // take a snapshot under a cheap lock without blocking the
+    // detection / submit path. The cycle path takes the same
+    // locks to charge / refund; the lock is held for
+    // microseconds.
+    let cap_state = Arc::new(Mutex::new(cap_state));
     let _rate_limit = RateLimit::new(RateLimitConfig::default());
-    let _killswitch = KillSwitch::new(KillSwitchConfig::default());
+    let killswitch = Arc::new(Mutex::new(KillSwitch::new(KillSwitchConfig::default())));
 
     // Phase 2 C3: load `calibration.json` if it exists and feed it
     // into the live eval model. Fall back to `conservative_default()`
@@ -482,9 +524,38 @@ fn run_live_submit(
     );
     eprintln!("dl-app run: ready. wire `live::submit_opportunity` to your cycle stream.");
     eprintln!("dl-app run: press Ctrl-C to exit");
-    // Block until SIGINT so the binary stays alive (operator
-    // can inspect config). Real cycle-stream wiring is Phase 2.
-    std::thread::park();
+
+    // DAM-82: spin up the live_status.json writer on a side
+    // tokio task that ticks at 1 Hz and snapshots the shared
+    // cap + kill switch. The cycle path (Phase 2) will hand
+    // its `Arc`s to the same lockable view. We block here on
+    // a dedicated runtime; SIGINT flips the watch channel
+    // and the writer does one final write before returning.
+    let live_status_path = std::env::var("DL_LIVE_STATUS_PATH")
+        .unwrap_or_else(|_| dl_app::live_status::DEFAULT_PATH.to_string());
+    let live_status_path = std::path::PathBuf::from(live_status_path);
+    let live_status_inputs = Arc::new(Mutex::new(dl_app::live_status::WriterInputs::default()));
+    let state = dl_app::live_status::SharedState {
+        cap: cap_state,
+        killswitch,
+        inputs: live_status_inputs,
+    };
+    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(1)
+        .enable_all()
+        .thread_name("dl-app-live-status")
+        .build()
+        .expect("build tokio runtime");
+    let ctrl_c_shutdown = shutdown_tx.clone();
+    runtime.spawn(async move {
+        if let Ok(()) = tokio::signal::ctrl_c().await {
+            let _ = ctrl_c_shutdown.send(true);
+        }
+    });
+    runtime.block_on(async move {
+        dl_app::live_status::run_writer_loop(live_status_path, state, shutdown_rx).await;
+    });
 }
 
 /// Pre-fund the vault PDA stub (kept for backwards compat
@@ -1772,6 +1843,12 @@ fn run_dry_run() {
                     Err(_e) => decoded_err += 1,
                 }
             }
+            FeedEvent::Pool { .. } | FeedEvent::StalePoolHalt { .. } => {
+                // Stats counters track Slot + AccountUpdate only;
+                // Pool + StalePoolHalt are v2.0 events that don't
+                // contribute to the offline capture-vs-cycle test
+                // stats surfaced by this helper.
+            }
         }
     }
 
@@ -1825,6 +1902,39 @@ fn run_metrics_prom(port: u16) -> std::process::ExitCode {
         t.set(0);
         let tip = RegistryGauge::new(registry.clone(), "total_tip_lamports");
         tip.set(0);
+    }
+
+    // DAM-81: wire the four DAM-68 target series
+    // (dl_jito_submit_total, dl_jito_landed_total,
+    // dl_daily_cap_remaining_lamports, dl_realized_pnl_sol)
+    // into the registry. `run_metrics_prom` is the only path
+    // that currently constructs a `MetricsRegistry` and serves
+    // `/metrics`; the `--submit-live` runner is wired in DAM-95.
+    // Here we use throwaway stand-ins for `LiveMetrics`,
+    // `CapState`, and `PnLTracker` so the four series appear
+    // on the first scrape even before the live runner is
+    // running. The stand-ins let SRE flip the Phase 3 alerts to
+    // active and validate the prom render path end-to-end.
+    {
+        use dl_app::live_metrics::{LiveMetricsAdapter, PnLTracker};
+        use dl_executor::metrics::LiveMetrics;
+        use dl_signer::cap::{CapConfig, CapState};
+        use std::sync::Mutex;
+
+        let live = Arc::new(LiveMetrics::new());
+        let cap_state = Arc::new(Mutex::new(CapState::new(CapConfig::default())));
+        let pnl = Arc::new(PnLTracker::new());
+        let adapter = LiveMetricsAdapter::new(
+            registry.clone(),
+            live,
+            cap_state,
+            pnl,
+        );
+        // Initial poll so all four series appear on the
+        // first scrape (Prometheus alerts evaluate `absent()`
+        // and would otherwise flag the rule as no-data for
+        // the first 30 s window).
+        adapter.poll();
     }
 
     let bind = format!("127.0.0.1:{port}");

@@ -1139,6 +1139,8 @@ name = "dl-calibration"
 version = "0.0.0"
 dependencies = [
  "dl-core",
+ "dl-ledger",
+ "dl-recon",
  "dl-recon-overfit",
  "dl-sim",
  "serde",
@@ -1193,6 +1195,9 @@ dependencies = [
  "bincode",
  "bs58",
  "dl-core",
+ "dl-detect",
+ "dl-state",
+ "dl-stream",
  "futures-util",
  "rustls 0.23.40",
  "serde",
@@ -1284,6 +1289,8 @@ dependencies = [
  "dl-core",
  "ed25519-dalek 2.2.0",
  "rand 0.8.6",
+ "serde",
+ "serde_json",
  "thiserror 1.0.69",
  "tracing",
  "zeroize",
@@ -1307,6 +1314,8 @@ version = "0.0.0"
 dependencies = [
  "bs58",
  "dl-core",
+ "dl-detect",
+ "dl-stream",
  "proptest",
  "serde",
  "thiserror 1.0.69",

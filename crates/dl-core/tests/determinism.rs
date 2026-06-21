@@ -29,6 +29,19 @@ fn run(seed: u64, script: Vec<FeedEvent>) -> Vec<u8> {
                 let _ = (pubkey, data);
                 "acct"
             }
+            FeedEvent::Pool { pool, .. } => {
+                // Decoded pool updates (DAM-44b/c, Meteora DLMM +
+                // Orca Whirlpool). Fold the pool pubkey into the
+                // transcript tag for byte-stable determinism.
+                let _ = pool;
+                "pool"
+            }
+            FeedEvent::StalePoolHalt { pubkey, .. } => {
+                // Staleness-guard trip. Fold the pubkey for the
+                // same reason as `Pool`.
+                let _ = pubkey;
+                "stale"
+            }
         };
         record(&mut transcript, clock.now_millis(), clock.slot(), r, tag);
     }
