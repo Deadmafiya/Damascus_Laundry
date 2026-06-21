@@ -21,6 +21,7 @@ use solana_sdk::system_instruction;
 use solana_sdk::transaction::VersionedTransaction;
 
 use dl_detect::cycle::Cycle;
+use dl_core::Feed;
 use dl_executor::bundle::{BundleBuilder, TipLeg};
 use dl_executor::jito::{JitoClient, LandingResult};
 use dl_executor::jupiter::JupiterClient;
@@ -106,7 +107,30 @@ impl OpportunityOutcome {
 /// 5. Cap + rate-limit + kill switch check BEFORE submit.
 /// 6. Submit via `jito.submit`. Record the outcome on the
 ///    kill switch.
-pub fn submit_opportunity(
+/// Test-amenable closure signature for the simulate gate.
+///
+/// Production callers pass a closure that wraps
+/// `dl_executor::simulate_and_classify` against
+/// `cfg.simulate_rpc_url`. Unit tests pass a stub that returns a
+/// pre-captured verdict (from a bincode replay) so the gate can
+/// be exercised without a live RPC. The `Option<&Pubkey>` is the
+/// dl-assert program ID; pass `None` to skip the assert-tx filter
+/// (matches the v1.0 `simulate_bundle` contract).
+pub type SimulateFn = dyn Fn(
+    &[VersionedTransaction],
+    Option<&solana_sdk::pubkey::Pubkey>,
+) -> Result<(dl_executor::SimulationReport, dl_executor::SimulateVerdict), dl_executor::error::ExecutorError>;
+
+/// Test-amenable submit pipeline. Identical to
+/// [`submit_opportunity`] except the simulate gate calls
+/// `simulate_fn` instead of constructing an RPC client from
+/// `cfg.simulate_rpc_url`. Use this variant in unit tests to
+/// inject a captured bincode replay verdict without talking to a
+/// live Solana RPC.
+///
+/// See [`submit_opportunity`] for the full per-cycle flow.
+#[allow(clippy::too_many_arguments)]
+pub fn submit_opportunity_with_simulate(
     cycle: &Cycle,
     pool_lookup: &dyn Fn(&DlPubkey) -> Option<DlPool>,
     jupiter: &dyn JupiterClient,
@@ -117,6 +141,7 @@ pub fn submit_opportunity(
     rate_limit: &RateLimit,
     killswitch: &mut KillSwitch,
     metrics: &LiveMetrics,
+    simulate_fn: &SimulateFn,
 ) -> OpportunityOutcome {
     use crate::opportunity::build_unsigned_bundle;
     use dl_assert_sdk::assert_min_net_pnl_threshold_reasonable;
@@ -249,39 +274,34 @@ pub fn submit_opportunity(
     };
     let expected_out_per_leg: Vec<u64> = output.legs.iter().map(|l| l.expected_out).collect();
 
-    // If a simulate RPC URL is configured, call simulateTransaction on
-    // every tx in the bundle EXCEPT the dl-assert tx (the assert's
-    // on-chain revert IS the gate; simulating it would falsely flag
-    // profitable bundles). Reject on `NonPositive` verdict — fail-closed.
-    if let Some(rpc_url) = cfg.simulate_rpc_url.as_deref() {
-        let sim_rpc = solana_client::rpc_client::RpcClient::new(rpc_url.to_string());
-        let (report, verdict) = match dl_executor::simulate_and_classify(
-            &sim_rpc,
-            &output.signed_transactions,
-            Some(&cfg.assert_program_id),
-        ) {
-            Ok((r, v)) => (r, v),
-            Err(e) => {
-                cap_state.refund(tip);
-                return OpportunityOutcome::Rejected(format!("simulate rpc: {e}"));
-            }
-        };
-        if matches!(
-            verdict,
-            dl_executor::SimulateVerdict::NonPositive | dl_executor::SimulateVerdict::Error
-        ) {
-            tracing::warn!(
-                verdict = ?verdict,
-                all_txs_ok = report.all_txs_ok,
-                logs_len = report.logs.len(),
-                "simulate gate rejected bundle"
-            );
+    // Simulate gate. The dl-assert tx is skipped (its on-chain
+    // revert IS the gate; simulating it would falsely flag
+    // profitable bundles). Reject on `NonPositive` / `Error`
+    // verdict — fail-closed. Production delegates to
+    // `dl_executor::simulate_and_classify` via `simulate_fn`; unit
+    // tests inject a captured bincode replay verdict.
+    let (report, verdict) = match simulate_fn(&output.signed_transactions, Some(&cfg.assert_program_id)) {
+        Ok((r, v)) => (r, v),
+        Err(e) => {
             cap_state.refund(tip);
-            return OpportunityOutcome::Rejected(format!(
-                "simulate verdict {:?} (all_txs_ok={})",
-                verdict, report.all_txs_ok
-            ));
+            return OpportunityOutcome::Rejected(format!("simulate rpc: {e}"));
         }
+    };
+    if matches!(
+        verdict,
+        dl_executor::SimulateVerdict::NonPositive | dl_executor::SimulateVerdict::Error
+    ) {
+        tracing::warn!(
+            verdict = ?verdict,
+            all_txs_ok = report.all_txs_ok,
+            logs_len = report.logs.len(),
+            "simulate gate rejected bundle"
+        );
+        cap_state.refund(tip);
+        return OpportunityOutcome::Rejected(format!(
+            "simulate verdict {:?} (all_txs_ok={})",
+            verdict, report.all_txs_ok
+        ));
     }
 
     let mut txs = output.signed_transactions;
@@ -361,6 +381,69 @@ pub fn submit_opportunity(
         }
     };
     outcome
+}
+
+/// Production submit pipeline. Thin wrapper over
+/// [`submit_opportunity_with_simulate`] that builds the simulate
+/// closure from `cfg.simulate_rpc_url`. When no RPC URL is
+/// configured, the closure returns a synthetic `Positive` verdict
+/// — the gate is effectively skipped (matches the v1.0
+/// `simulate_rpc_url = None` semantics). When a URL is set, the
+/// closure delegates to `dl_executor::simulate_and_classify`.
+///
+/// See module docs for the full per-cycle flow.
+#[allow(clippy::too_many_arguments)]
+pub fn submit_opportunity(
+    cycle: &Cycle,
+    pool_lookup: &dyn Fn(&DlPubkey) -> Option<DlPool>,
+    jupiter: &dyn JupiterClient,
+    jito: &dyn JitoClient,
+    keystore: &KeyStore,
+    cfg: &LiveConfig,
+    cap_state: &mut CapState,
+    rate_limit: &RateLimit,
+    killswitch: &mut KillSwitch,
+    metrics: &LiveMetrics,
+) -> OpportunityOutcome {
+    // Build the simulate closure: when `simulate_rpc_url` is None
+    // return a synthetic Positive (gate skipped, matches the
+    // pre-DAM-33 v1.0 semantics). When Some, call
+    // `dl_executor::simulate_and_classify` synchronously.
+    // Clone the URL into the closure so the closure has no
+    // borrow on `cfg` (which would conflict with passing `cfg`
+    // to `submit_opportunity_with_simulate` and force a
+    // `'static` bound on `SimulateFn`).
+    let simulate_rpc_url: Option<String> = cfg.simulate_rpc_url.clone();
+    let simulate_fn = move |txs: &[VersionedTransaction],
+                            assert_pid: Option<&solana_sdk::pubkey::Pubkey>|
+          -> Result<
+        (dl_executor::SimulationReport, dl_executor::SimulateVerdict),
+        dl_executor::error::ExecutorError,
+    > {
+        match simulate_rpc_url.as_deref() {
+            Some(rpc_url) => {
+                let sim_rpc = solana_client::rpc_client::RpcClient::new(rpc_url.to_string());
+                dl_executor::simulate_and_classify(&sim_rpc, txs, assert_pid)
+            }
+            None => Ok((
+                dl_executor::report_from_parts(None, 0, vec![], true),
+                dl_executor::SimulateVerdict::Positive,
+            )),
+        }
+    };
+    submit_opportunity_with_simulate(
+        cycle,
+        pool_lookup,
+        jupiter,
+        jito,
+        keystore,
+        cfg,
+        cap_state,
+        rate_limit,
+        killswitch,
+        metrics,
+        &simulate_fn,
+    )
 }
 
 /// Map a base58 mint to one of the three known DEX kinds. Used by
@@ -856,5 +939,106 @@ mod live_submit_tests {
             &metrics,
         );
         assert!(matches!(outcome, OpportunityOutcome::NotSubmitted(_)));
+    }
+
+    // ─── simulate-gate tests (DAM-84) ─────────────────────────────────
+    // These tests exercise the `submit_opportunity_with_simulate`
+    // closure variant. The closure is stubbed to return a
+    // pre-captured `SimulateVerdict` so the gate is exercised
+    // without a live RPC (DAM-33 AC3: "simulateTransaction gate
+    // is exercised against a captured bincode replay").
+
+    /// Helper: build the same scaffolding as
+    /// `submit_opportunity_returns_landed_for_valid_cycle` and run
+    /// `submit_opportunity_with_simulate` with a caller-supplied
+    /// simulate closure. Returns the `OpportunityOutcome`.
+    fn run_with_simulate(
+        simulate_fn: &SimulateFn,
+    ) -> OpportunityOutcome {
+        let keystore = fresh_keystore();
+        let jito = MockJitoClient::new();
+        let pool_lookup = |pk: &DlPubkey| Some(dummy_pool(pk.0));
+        let kp = Keypair::new();
+        let ix = solana_sdk::system_instruction::transfer(&kp.pubkey(), &kp.pubkey(), 0);
+        let msg = Message::new(&[ix], Some(&kp.pubkey()));
+        let tx = VersionedTransaction {
+            signatures: vec![],
+            message: VersionedMessage::Legacy(msg),
+        };
+        let jupiter = BypassJupiter { tx_template: tx };
+        let cycle = three_leg_cycle();
+        let cfg = default_live_config(&keystore);
+        let (mut cap, rl, mut ks) = fresh_safety();
+        let metrics = LiveMetrics::new();
+        submit_opportunity_with_simulate(
+            &cycle,
+            &pool_lookup,
+            &jupiter,
+            &jito,
+            &keystore,
+            &cfg,
+            &mut cap,
+            &rl,
+            &mut ks,
+            &metrics,
+            simulate_fn,
+        )
+    }
+
+    #[test]
+    fn submit_opportunity_with_simulate_passes_on_positive_verdict() {
+        // Simulate closure returns Positive (synthetic, no RPC).
+        let simulate_fn: &SimulateFn = &|_txs, _assert_pid| {
+            Ok((
+                dl_executor::report_from_parts(None, 0, vec![], true),
+                dl_executor::SimulateVerdict::Positive,
+            ))
+        };
+        let outcome = run_with_simulate(simulate_fn);
+        assert!(
+            outcome.landed(),
+            "expected Landed on Positive verdict, got {:?}",
+            outcome
+        );
+    }
+
+    #[test]
+    fn submit_opportunity_with_simulate_rejects_on_non_positive_verdict() {
+        // Simulate closure returns NonPositive → bundle must be
+        // rejected with a reason mentioning the verdict.
+        let simulate_fn: &SimulateFn = &|_txs, _assert_pid| {
+            Ok((
+                dl_executor::report_from_parts(Some(-1_000), 0, vec![], true),
+                dl_executor::SimulateVerdict::NonPositive,
+            ))
+        };
+        let outcome = run_with_simulate(simulate_fn);
+        match outcome {
+            OpportunityOutcome::Rejected(reason) => {
+                assert!(
+                    reason.contains("simulate verdict"),
+                    "rejection reason should mention simulate verdict, got: {reason}"
+                );
+            }
+            other => panic!("expected Rejected on NonPositive verdict, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn submit_opportunity_with_simulate_rejects_on_error_verdict() {
+        // Simulate closure returns Error → bundle must be
+        // rejected (fail-closed semantics).
+        let simulate_fn: &SimulateFn = &|_txs, _assert_pid| {
+            Ok((
+                dl_executor::report_from_parts(None, 0, vec![], false),
+                dl_executor::SimulateVerdict::Error,
+            ))
+        };
+        let outcome = run_with_simulate(simulate_fn);
+        assert!(
+            matches!(outcome, OpportunityOutcome::Rejected(_)),
+            "expected Rejected on Error verdict, got {:?}",
+            outcome
+        );
     }
 }

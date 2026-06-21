@@ -297,9 +297,8 @@ fn chaos_kill_process_does_not_double_submit_and_cap_is_consistent_on_restart() 
         &rl,
         &mut ks,
         &metrics,
-        Arc::new(always_positive_simulate),
+        &always_positive_simulate,
     );
-
     // The pipeline surfaced the kill as a poll error, not as
     // a landing or a clean NotSubmitted.
     match &outcome {
@@ -316,8 +315,12 @@ fn chaos_kill_process_does_not_double_submit_and_cap_is_consistent_on_restart() 
 
     // The cap was charged once and NOT refunded: the bundle
     // was actually sent to Jito. The tip was paid. The cap
-    // correctly accounts for it.
-    let expected_tip = dl_executor::tip::tip_lamports(1_000_000_000, &cfg.tip_config);
+    // correctly accounts for it. Use the same input amount
+    // the pipeline uses (`default_input_amount_lamports(cycle)`,
+    // which is 0.1 SOL for a freshly-built cycle), not the
+    // 1 SOL figure the older comment referenced.
+    let input_amount = dl_app::opportunity::default_input_amount_lamports(&cycle);
+    let expected_tip = dl_executor::tip::tip_lamports(input_amount as i128, &cfg.tip_config);
     assert_eq!(
         cap.spent_today(),
         expected_tip,
@@ -376,7 +379,7 @@ fn chaos_kill_process_does_not_double_submit_and_cap_is_consistent_on_restart() 
         &rl2,
         &mut ks2,
         &metrics2,
-        Arc::new(always_positive_simulate),
+        &always_positive_simulate,
     );
 
     assert!(

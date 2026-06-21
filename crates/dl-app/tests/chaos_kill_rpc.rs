@@ -17,8 +17,6 @@
 //! process" — this is by design for the v2.0 in-memory model
 //! and is recorded as a known gap in `docs/chaos/README.md`.
 
-use std::sync::Arc;
-
 use dl_app::live::{submit_opportunity_with_simulate, LiveConfig, OpportunityOutcome};
 use dl_detect::cycle::{Cycle, Direction, Leg};
 use dl_executor::error::ExecutorError;
@@ -212,8 +210,11 @@ fn chaos_kill_rpc_does_not_double_charge_and_cap_is_consistent_on_restart() {
     let cfg = default_live_config();
 
     // ── Phase 1: pre-restart process ────────────────────────────────────
-    // 1 SOL input, default tip config → 1_000_000_000 * 50 / 10_000
-    // = 5_000_000 lamports tip, floored at min_lamports=10_000.
+    // The test's three_leg_cycle() is built with Cycle::new, so its
+    // `expected_profit_bps` is 0. `default_input_amount_lamports`
+    // then returns 0.1 SOL = 100_000_000 lamports (the MIN clamp),
+    // not 1 SOL. Default tip config (bps=50, min=10_000) gives:
+    // 100_000_000 * 50 / 10_000 = 500_000 lamports tip.
     let mut cap = CapState::new(CapConfig::default());
     let rl = RateLimit::new(RateLimitConfig::default());
     let mut ks = KillSwitch::new(KillSwitchConfig::default());
@@ -230,7 +231,7 @@ fn chaos_kill_rpc_does_not_double_charge_and_cap_is_consistent_on_restart() {
         &rl,
         &mut ks,
         &metrics,
-        Arc::new(dropped_rpc_simulate),
+        &dropped_rpc_simulate,
     );
 
     // The bundle was NOT submitted. The simulate gate rejected
@@ -279,6 +280,25 @@ fn chaos_kill_rpc_does_not_double_charge_and_cap_is_consistent_on_restart() {
 
     // The fresh process submits a NEW bundle cleanly. The
     // pre-restart bundle's tip is NOT carried over.
+    let post_simulate = |_txs: &[VersionedTransaction],
+                         _assert_pid: Option<&Pubkey>|
+     -> Result<
+        (
+            dl_executor::simulate::SimulationReport,
+            dl_executor::simulate::SimulateVerdict,
+        ),
+        ExecutorError,
+    > {
+        Ok((
+            dl_executor::simulate::SimulationReport {
+                net_pnl_lamports: None,
+                compute_units: 0,
+                logs: Vec::new(),
+                all_txs_ok: true,
+            },
+            dl_executor::simulate::SimulateVerdict::Positive,
+        ))
+    };
     let outcome2 = submit_opportunity_with_simulate(
         &cycle,
         &pool_lookup,
@@ -290,27 +310,7 @@ fn chaos_kill_rpc_does_not_double_charge_and_cap_is_consistent_on_restart() {
         &rl2,
         &mut ks2,
         &metrics2,
-        Arc::new(
-            |_txs: &[VersionedTransaction],
-             _assert_pid: Option<&Pubkey>|
-             -> Result<
-                (
-                    dl_executor::simulate::SimulationReport,
-                    dl_executor::simulate::SimulateVerdict,
-                ),
-                ExecutorError,
-            > {
-                Ok((
-                    dl_executor::simulate::SimulationReport {
-                        net_pnl_lamports: None,
-                        compute_units: 0,
-                        logs: Vec::new(),
-                        all_txs_ok: true,
-                    },
-                    dl_executor::simulate::SimulateVerdict::Positive,
-                ))
-            },
-        ),
+        &post_simulate,
     );
 
     assert!(
@@ -319,8 +319,12 @@ fn chaos_kill_rpc_does_not_double_charge_and_cap_is_consistent_on_restart() {
     );
 
     // The cap accounts ONLY for the post-restart bundle's tip —
-    // exactly one tip's worth, not two.
-    let post_tip = dl_executor::tip::tip_lamports(1_000_000_000, &cfg.tip_config);
+    // exactly one tip's worth, not two. Use the same input amount
+    // the pipeline uses (`default_input_amount_lamports(cycle)` =
+    // 0.1 SOL for a freshly-built cycle), not the 1 SOL figure
+    // used in the Phase 1 comment.
+    let input_amount = dl_app::opportunity::default_input_amount_lamports(&cycle);
+    let post_tip = dl_executor::tip::tip_lamports(input_amount as i128, &cfg.tip_config);
     assert_eq!(
         cap2.spent_today(),
         post_tip,
