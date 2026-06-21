@@ -221,7 +221,7 @@ pub fn replay_pools_to_ledger(
     // deterministic across runs (HashMap order is randomized).
     let mut pool_slice: Vec<Pool> = registry.iter().map(|(_, p)| p.clone()).collect();
     pool_slice.sort_by_key(|p| p.address.0);
-    let graph = match build_from_pools(&pool_slice) {
+    let mut graph = match build_from_pools(&pool_slice) {
         Ok(g) => g,
         Err(dl_detect::DetectError::EmptyGraph) => {
             return Ok(ReconReport {
@@ -236,6 +236,24 @@ pub fn replay_pools_to_ledger(
         }
         Err(e) => return Err(ReconError::Detect(e)),
     };
+    // DAM-44c: graph-level staleness prune. Drops edges whose
+    // source pool's `last_update_slot` is older than
+    // `MAX_POOL_AGE_SLOTS` slots. `now_slot` is the snapshot's most
+    // recent observation point (max `last_update_slot` across the
+    // input pool list). Threshold read at startup; 0 disables the
+    // guard. Saturating-sub slot math; integer-only.
+    let max_age = dl_detect::staleness::max_pool_age_slots_from_env();
+    let now_slot = pool_slice
+        .iter()
+        .map(|p| p.last_update_slot)
+        .max()
+        .unwrap_or(0);
+    let _prune_report = dl_detect::staleness::prune_stale_edges(
+        &mut graph,
+        &pool_slice,
+        now_slot,
+        max_age,
+    );
     let cycles = find_negative_cycles(&graph, params.max_cycle_legs);
 
     let mut records: Vec<CycleRecord> = Vec::with_capacity(cycles.len());
@@ -482,6 +500,12 @@ pub fn diff_against_ledger<R: Read>(
 mod tests {
     use super::*;
     use dl_state::pool::{AmmKind, Pool};
+    use std::sync::Mutex;
+
+    /// DAM-44c: any test that mutates the `MAX_POOL_AGE_SLOTS`
+    /// env var must hold this lock to avoid racing the global
+    /// env with other tests in the same process.
+    static PRUNE_ENV_LOCK: Mutex<()> = Mutex::new(());
 
     fn make_pool(addr: [u8; 32], base: u64, quote: u64) -> Pool {
         Pool {
@@ -562,5 +586,85 @@ mod tests {
         // builder + detector decide), but the report should not panic
         // and should be deterministic.
         let _ = report.len();
+    }
+
+    /// DAM-44c: the recon harness invokes `prune_stale_edges`
+    /// before cycle detection. With the cold-start default
+    /// (env unset), the prune is a no-op and the report is
+    /// deterministic. This test pins that the recon path with
+    /// the prune wired in returns identical hashes on repeated
+    /// runs (no spurious divergence from the prune step).
+    #[test]
+    fn recon_with_prune_wired_is_deterministic() {
+        let pools = vec![
+            make_pool([1u8; 32], 1_000_000, 1_000_000),
+            make_pool([2u8; 32], 1_000_000, 1_100_000),
+        ];
+        let params = ReplayParams::default();
+        let a = replay_pools_to_ledger(&pools, &params).unwrap();
+        let b = replay_pools_to_ledger(&pools, &params).unwrap();
+        assert_eq!(a.report_hash, b.report_hash);
+    }
+
+    /// DAM-44c: with `MAX_POOL_AGE_SLOTS=2` set, a pool whose
+    /// `last_update_slot` is far enough in the past is pruned
+    /// from the price graph before cycle detection. A triangle
+    /// of pools where one leg is stale produces no cycles
+    /// through that leg. Pins that the wiring in
+    /// `replay_pools_to_ledger` actually invokes the prune.
+    #[test]
+    fn recon_prune_drops_stale_leg_from_cycle() {
+        // Build a profitable triangle (mirrors
+        // `detect_finds_triangle_with_rate_edge`).
+        let mut pool1 = make_pool([0x11u8; 32], 1_000_000, 1_000_000);
+        let mut pool2 = make_pool([0x22u8; 32], 1_000_000, 1_000_000);
+        let mut pool3 = make_pool([0x33u8; 32], 1_000_000, 1_000_000);
+        pool2.base_mint = Pubkey([0xaa; 32]);
+        pool2.quote_mint = Pubkey([0xcc; 32]);
+        pool3.base_mint = Pubkey([0xcc; 32]);
+        pool3.quote_mint = Pubkey([0xaa; 32]);
+        pool3.quote_reserve = 1_100_000; // skewed for profit
+        // The fresh pools are at slot 1_000; pool3 is stale at
+        // slot 0 (age = 1_000 > threshold = 2).
+        pool1.last_update_slot = 1_000;
+        pool2.last_update_slot = 1_000;
+        pool3.last_update_slot = 0;
+        // SAFETY: tests can race on the env var. We use a
+        // process-wide mutex via std::sync::Mutex to serialize
+        // any test that touches MAX_POOL_AGE_SLOTS.
+        let _guard = PRUNE_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let prev = std::env::var(dl_detect::staleness::MAX_POOL_AGE_SLOTS_ENV).ok();
+        // SAFETY: the lock above serializes this test with any
+        // other test in this process that reads the env var.
+        // env::set_var is `unsafe` in edition 2024; this crate
+        // is edition 2021 so it's still safe.
+        std::env::set_var(dl_detect::staleness::MAX_POOL_AGE_SLOTS_ENV, "2");
+        let pools = vec![pool1, pool2, pool3];
+        let params = ReplayParams::default();
+        let _report = replay_pools_to_ledger(&pools, &params).unwrap();
+        // Restore the previous env value before any assertion
+        // so a failed assert doesn't leak state.
+        match prev {
+            Some(v) => std::env::set_var(
+                dl_detect::staleness::MAX_POOL_AGE_SLOTS_ENV,
+                v,
+            ),
+            None => std::env::remove_var(dl_detect::staleness::MAX_POOL_AGE_SLOTS_ENV),
+        }
+        // Pool3's edges were pruned, so no cycle through pool3
+        // can be formed. With only pool1 + pool2 left, no
+        // 2-leg or 3-leg cycle can span them (pool1 and pool2
+        // are the same pair).
+        // Note: we don't assert `report.is_empty()` because
+        // `make_pool` default behavior plus the graph builder
+        // may still produce non-cycle records through pool1 +
+        // pool2 alone. The key property is that the prune was
+        // *invoked*: the global counter has been bumped.
+        let pruned = dl_detect::staleness::STALE_EDGES_PRUNED_TOTAL
+            .load(std::sync::atomic::Ordering::Relaxed);
+        assert!(
+            pruned >= 2,
+            "expected at least 2 stale edges pruned (pool3's two directed edges), got {pruned}"
+        );
     }
 }

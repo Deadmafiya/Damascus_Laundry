@@ -162,6 +162,50 @@ impl StreamingGraph {
             .map(|v| v.len())
             .unwrap_or(0)
     }
+
+    /// DAM-44c: prune edges from `self.graph` whose source pool
+    /// is older than `max_pool_age_slots` slots at `now_slot`,
+    /// then rebuild the `pool_to_edges` index so it stays
+    /// consistent with the post-prune graph. The threshold of
+    /// `0` short-circuits to a no-op (matches `dl_feed::staleness`).
+    ///
+    /// The pool universe passed in is the **current** set of
+    /// pools tracked by the streaming graph. In the live
+    /// submit path the caller materialises this from the
+    /// `raydium_pools` / `orca_pools` / `meteora_pools` maps
+    /// before invoking the prune. Returns a [`PruneReport`]
+    /// describing the dropped edges.
+    pub fn prune_stale_edges(
+        &mut self,
+        pools: &[Pool],
+        now_slot: u64,
+        max_pool_age_slots: u64,
+    ) -> dl_detect::staleness::PruneReport {
+        // The helper only needs `last_update_slot` but the
+        // full `Pool` is what the helper takes; pass it
+        // through unchanged.
+        let report = dl_detect::staleness::prune_stale_edges(
+            &mut self.graph,
+            pools,
+            now_slot,
+            max_pool_age_slots,
+        );
+        if report.n_dropped() == 0 {
+            return report;
+        }
+        // Rebuild the pool->edges index. The pre-prune indices
+        // are not stable (the helper's `swap_remove` shifts
+        // them), so re-walk the post-prune graph.
+        let mut new_index: BTreeMap<u64, Vec<usize>> = BTreeMap::new();
+        for (i, e) in self.graph.edges.iter().enumerate() {
+            new_index
+                .entry(pool_key(e.pool))
+                .or_insert_with(Vec::new)
+                .push(i);
+        }
+        self.pool_to_edges = new_index;
+        report
+    }
 }
 
 /// Hash a 32-byte pubkey to a u64 (first 8 bytes interpreted as
@@ -199,6 +243,12 @@ impl StreamingDetector {
 
     pub fn graph(&self) -> &StreamingGraph {
         &self.graph
+    }
+
+    /// DAM-44c: mutable access to the underlying streaming
+    /// graph so callers can invoke `prune_stale_edges` on it.
+    pub fn graph_mut(&mut self) -> &mut StreamingGraph {
+        &mut self.graph
     }
 }
 
@@ -288,5 +338,67 @@ mod tests {
     fn empty_pools_fails_to_build() {
         let r = StreamingDetector::new(&[]);
         assert!(r.is_err());
+    }
+
+    /// DAM-44c: the streaming graph exposes a `prune_stale_edges`
+    /// method that drops stale edges and rebuilds the
+    /// `pool_to_edges` index. With threshold 0 the prune is
+    /// a no-op (matches `dl_feed::staleness`).
+    #[test]
+    fn prune_stale_edges_threshold_zero_is_noop() {
+        // Build a streaming detector. The triangle pools all
+        // have `last_update_slot: 0` (see triangle_pools); so
+        // any positive now_slot with a positive threshold
+        // would prune everything. We use threshold 0 to
+        // confirm the short-circuit.
+        let mut d = StreamingDetector::new(&triangle_pools()).unwrap();
+        let pre_edges = d.graph().graph().edges.len();
+        let report = d
+            .graph_mut()
+            .prune_stale_edges(&triangle_pools(), 1_000_000, 0);
+        assert_eq!(report.n_dropped(), 0);
+        assert_eq!(d.graph().graph().edges.len(), pre_edges);
+    }
+
+    /// DAM-44c: with a positive threshold, a pool whose
+    /// `last_update_slot` is older than the threshold has its
+    /// edges dropped. The `pool_to_edges` index is rebuilt
+    /// post-prune so lookups remain consistent.
+    #[test]
+    fn prune_stale_edges_drops_old_pool_and_rebuilds_index() {
+        let pools = triangle_pools();
+        let mut d = StreamingDetector::new(&pools).unwrap();
+        // Set pool[0] and pool[2] to a fresh slot (1_000);
+        // pool[1] stays at the default slot 0. With
+        // now_slot = 1_000 and threshold = 50, only pool[1]
+        // (age = 1_000 > 50) is stale.
+        let mut fresh_pools = pools.clone();
+        fresh_pools[0].last_update_slot = 1_000;
+        fresh_pools[2].last_update_slot = 1_000;
+        // pool[1] is left at `last_update_slot: 0` (stale).
+        let now_slot = 1_000u64;
+        let threshold = 50u64;
+        let pre_edges = d.graph().graph().edges.len();
+        let report = d
+            .graph_mut()
+            .prune_stale_edges(&fresh_pools, now_slot, threshold);
+        assert_eq!(
+            report.n_dropped(),
+            2,
+            "expected 2 directed edges dropped for pool[1]"
+        );
+        let post_edges = d.graph().graph().edges.len();
+        assert_eq!(post_edges, pre_edges - 2);
+        // The post-prune graph should not contain any edge
+        // whose pool is pool[1].
+        for e in &d.graph().graph().edges {
+            assert_ne!(
+                e.pool.0,
+                pools[1].address.0,
+                "post-prune graph still contains an edge for the stale pool"
+            );
+        }
+        // Index consistency: `edges_for(stale_pool)` returns 0.
+        assert_eq!(d.graph().edges_for(pools[1].address), 0);
     }
 }
