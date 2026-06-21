@@ -1,0 +1,397 @@
+# ==============================================================================
+# Damascus Laundry v2.0 live bot — Prometheus alerting rules + metric registry
+# ==============================================================================
+#
+# This file is the single source of truth for:
+#   1. The canonical Prometheus metric names exposed by the live bot.
+#   2. The PromQL alert rules that fire on those metrics.
+#   3. The mapping from each alert to the metric(s) it consumes, the producer
+#      code that emits those metrics, and the SLO (in docs/observability/slos.md)
+#      the alert defends.
+#   4. The mapping from each operator-dashboard card to the alert/metric that
+#      backs it, so a reader can trace card -> metric -> alert from this file
+#      alone.
+#
+# Schema version: 1 (initial — DAM-93).
+# Last updated:   2026-06-21.
+# Owner:          SRE.
+# Companion:      docs/observability/runbook.md (one section per alert,
+#                 with triage steps and the escalation path).
+#                 docs/observability/slos.md (SLO #1/#2/#3 definitions and
+#                 budget policy).
+#                 dashboard/index.html (operator console; SLO status row reads
+#                 /api/slos; live cards read /api/live).
+#
+# Load via Prometheus:
+#     rule_files:
+#       - docs/observability/alerts.yml
+#
+# Metric naming convention: every metric is prefixed `dl_`. The four counters
+# that drive the live bot (submit / landed / cap-remaining / PnL) and the
+# three simulate-gate counters are owned by `dl-app`; the four feed metrics
+# (`feed_reconnect_*`, `feed_stale_pool_count`, `feed_halted`) are owned by
+# `dl-feed` and forwarded into the dl-app registry by the feed-metrics
+# adapter. The offline `dl_simulate_silent_revert_total` gauge is computed
+# by `dl-recon replay-bundles` and pushed to the Prom endpoint by a cron
+# job; it is a *gauge* (not a counter) so the `> 0` shape evaluates to
+# "the last recon run found a silent revert".
+
+# ==============================================================================
+# Section 1 — Metric registry
+# ==============================================================================
+#
+# Every Prometheus metric the live bot exposes. Source-of-truth for the
+# dashboard, the alert rules below, and the SRE metric-name guidance in
+# ~/.claude/projects/.../memory/damascus-sre-prom-metric-naming.md.
+
+metric_registry:
+  # Live runner bundle counters (dl-app live.rs -> LiveMetrics -> poller)
+  - name: dl_jito_submit_total
+    type: counter
+    producer: "crates/dl-app/src/live_metrics.rs:105"
+    source: "dl_executor::LiveMetrics::bundles_submitted (post-simulate gate)"
+  - name: dl_jito_landed_total
+    type: counter
+    producer: "crates/dl-app/src/live_metrics.rs:106"
+    source: "dl_executor::LiveMetrics::bundles_landed (LandingResult::Landed)"
+  # Cap state (dl-signer cap.rs -> CapState -> poller)
+  - name: dl_daily_cap_remaining_lamports
+    type: gauge
+    producer: "crates/dl-app/src/live_metrics.rs:107-108"
+    source: "dl_signer::cap::CapState::remaining() in lamports; resets at UTC midnight"
+  # PnL (dl-app live.rs -> LiveMetrics -> poller)
+  - name: dl_realized_pnl_sol
+    type: gauge
+    producer: "crates/dl-app/src/live_metrics.rs:109"
+    source: "(sol_received - sol_spent) / 1e9; bit-cast i64->u64 so sign survives"
+  # Feed (dl-feed ws_feed -> FeedStats -> feed-metrics adapter)
+  - name: feed_reconnect_count
+    type: gauge
+    producer: "crates/dl-app/src/feed_metrics.rs:44"
+    source: "dl_feed::ws_feed::FeedStats.reconnect_count (successful reconnects)"
+  - name: feed_reconnect_storm_count
+    type: gauge
+    producer: "crates/dl-app/src/feed_metrics.rs:46"
+    source: "FeedStats.reconnect_storm_count (storm events tripped)"
+  - name: feed_stale_pool_count
+    type: gauge
+    producer: "crates/dl-app/src/feed_metrics.rs:48"
+    source: "FeedStats.stale_pool_count (staleness guard trips)"
+  - name: feed_halted
+    type: gauge
+    producer: "crates/dl-app/src/feed_metrics.rs:49"
+    source: "0 = running, 1 = halted (StalePoolHalt) — fed by FeedStats.halted"
+  # Simulate-gate counters (dl-app live.rs gate — wired by DAM-79)
+  - name: dl_simulate_approved_total
+    type: counter
+    producer: "dl-app live runner gate (live.rs) — wired by DAM-79 (DAM-75b)"
+    source: "gate Positive verdicts (proxy for bundles that proceeded to Jito)"
+  - name: dl_simulate_rejected_total
+    type: counter
+    producer: "dl-app live runner gate (live.rs) — wired by DAM-79 (DAM-75b)"
+    source: "gate NonPositive/Error verdicts"
+  # Silent-revert gauge (offline — dl-recon cron)
+  - name: dl_simulate_silent_revert_total
+    type: gauge
+    producer: "crates/dl-recon/src/bundles.rs:90 (offline); exposed by crates/dl-recon/src/bin/replay_bundles.rs"
+    source: "dl-recon replay-bundles silent_revert_count, pushed by cron job"
+
+# ==============================================================================
+# Section 2 — Alert rules (PromQL, loaded by prometheus)
+# ==============================================================================
+#
+# Six rules. Each one maps 1:1 to a row in section 3 (the metric-dependency
+# table) and to a card in section 4 (dashboard coupling). The rule bodies
+# are byte-identical to the previously-shipped DAM-68 set; this is a
+# restructuring, not a rule change.
+
+groups:
+  - name: damascus_laundry.live
+    interval: 30s
+    rules:
+
+      # 1. landing_rate_drop (DAM-75c, SLO #2)
+      - alert: DlLandingRateDrop
+        expr: |
+          (
+            sum(rate(dl_jito_landed_total[5m]))
+            /
+            clamp_min(sum(rate(dl_jito_submit_total[5m])), 0.001)
+          ) < 0.10
+        for: 5m
+        labels:
+          severity: page
+          team: sre
+          slo: bundle-acceptance
+        annotations:
+          summary: "Landing rate <10% of submitted for 5m"
+          description: |
+            Rolling 5m landing rate fell below 10% of the
+            submission rate.
+          runbook_url: "docs/observability/runbook.md#dl-landing-rate-drop"
+
+      # 2. cap_exhaustion (DAM-75c, SLO #1)
+      - alert: DlCapExhaustion
+        expr: dl_daily_cap_remaining_lamports < 100000000
+        for: 1m
+        labels:
+          severity: page
+          team: sre
+          slo: capital-controls
+        annotations:
+          summary: "Daily tip cap < 0.1 SOL remaining"
+          description: |
+            Daily cap remaining = {{ $value }} lamports.
+            Refill the hot wallet.
+          runbook_url: "docs/observability/runbook.md#dl-cap-exhaustion"
+
+      # 3. reconnect_storm (DAM-75c)
+      - alert: DlReconnectStorm
+        expr: rate(feed_reconnect_count[1m]) > 5
+        for: 2m
+        labels:
+          severity: page
+          team: sre
+          slo: feed-freshness
+        annotations:
+          summary: "WS feed reconnect rate > 5/min for 2m"
+          description: |
+            Reconnect rate = {{ $value | humanize }}/min.
+          runbook_url: "docs/observability/runbook.md#dl-reconnect-storm"
+
+      # 4. pnl_drawdown (DAM-75c)
+      - alert: DlPnlDrawdown
+        expr: sum_over_time(-dl_realized_pnl_sol[1h]) > 0.05
+        for: 5m
+        labels:
+          severity: page
+          team: sre
+          slo: pnl-floor
+        annotations:
+          summary: "Realized PnL < -0.05 SOL over 1h"
+          description: |
+            1h realized PnL = {{ $value | humanize }} SOL.
+          runbook_url: "docs/observability/runbook.md#dl-pnl-drawdown"
+
+      # 5. silent_revert (DAM-79, SLO #3)
+      #
+      # Definition: at least one bundle approved by the simulate
+      # gate produced no observed outcome (Landed /
+      # FailedCleanly) within `landing_timeout_ms * 3`. The
+      # counter is computed offline by `dl-recon replay-bundles`
+      # (see crates/dl-recon/src/bundles.rs and
+      # crates/dl-recon/src/bin/replay_bundles.rs) and exposed
+      # as a gauge `dl_simulate_silent_revert_total` that the
+      # recon cron-job pushes into the Prom endpoint.
+      #
+      # We use a *gauge* rather than a counter so the alert
+      # evaluates to 0 on a clean run (the recon job resets
+      # the gauge to the latest sample's silent_revert_count).
+      # `> 0` over a gauge is the right shape for a
+      # "did the last run find anything?" signal.
+      #
+      # Rationale: a silent revert is a P0 safety violation.
+      # The SLO is "0 silent reverts over a rolling 30-day
+      # window" (docs/observability/slos.md SLO #3); even a
+      # single occurrence in 30 days triggers the error-budget
+      # policy. Pages the on-call + the CTO + Security.
+      - alert: DlSilentRevert
+        expr: dl_simulate_silent_revert_total > 0
+        for: 1m
+        labels:
+          severity: page
+          team: sre
+          slo: simulate-gate-correctness
+        annotations:
+          summary: "SLO #3 violation: simulate gate approved a bundle that silently reverted"
+          description: |
+            dl-recon replay-bundles found
+            silent_revert_count={{ $value }} (1 sample = 1 P0).
+            Any silent revert is a SLO #3 violation. Halt the
+            bot (touch /run/damascus_laundry/STOP, systemctl
+            stop dl-app), open a P0 incident, page the CTO +
+            Security, write a postmortem within 48 h.
+          runbook_url: "docs/observability/runbook.md#dl-silent-revert"
+
+      # 6. simulate_gate_high_rejection (DAM-79, SLO #3)
+      #
+      # Definition: the rolling 5-minute rate of simulate-gate
+      # rejections is more than 50% of the rolling 5-minute
+      # rate of all gate decisions (Approved + Rejected).
+      # `clamp_min(..., 0.001)` guards the divide-by-zero case
+      # when no bundles hit the gate in the window.
+      #
+      # The counters (DAM-79):
+      # - dl_simulate_rejected_total -- gate NonPositive/Error verdicts
+      # - dl_simulate_approved_total -- gate Positive verdicts (proxy
+      #   for "would have submitted"; the live path proceeds to
+      #   Jito immediately on approval)
+      #
+      # Rationale: a spike in rejections is a *leading*
+      # indicator. The pre-flight is catching problems, which
+      # is good; a sustained spike means our EV model is
+      # miscalibrated and we're either over- or under-trading.
+      # The on-call should look at the last 100 rejected
+      # bundles, and either tighten the conservative bound
+      # (Quant owner) or relax the tip floor (CEO owner).
+      - alert: DlSimulateGateHighRejection
+        expr: |
+          (
+            sum(rate(dl_simulate_rejected_total[5m]))
+            /
+            clamp_min(
+              sum(rate(dl_simulate_approved_total[5m])) + sum(rate(dl_simulate_rejected_total[5m])),
+              0.001
+            )
+          ) > 0.5
+        for: 5m
+        labels:
+          severity: page
+          team: sre
+          slo: simulate-gate-correctness
+        annotations:
+          summary: "Simulate-gate rejection rate > 50% for 5m"
+          description: |
+            Rolling 5m rejection rate is
+            {{ $value | humanizePercentage }}.
+            Investigate via `dl-recon replay-bundles`.
+            approved_5m={{ with query "sum(rate(dl_simulate_approved_total[5m]))" }}{{ . | first | value }}{{ end }}
+            rejected_5m={{ with query "sum(rate(dl_simulate_rejected_total[5m]))" }}{{ . | first | value }}{{ end }}
+          runbook_url: "docs/observability/runbook.md#dl-simulate-gate-high-rejection"
+
+# ==============================================================================
+# Section 3 — Metric-dependency table
+# ==============================================================================
+#
+# Row per alert. From this table alone, a reader can answer:
+#   "What metrics feed alert X?"        -> look at .metrics
+#   "What code emits those metrics?"    -> look at .producer
+#   "What SLO does alert X defend?"     -> look at .slo
+#   "What alerts fire on metric Y?"     -> look at metric_to_alerts below
+#
+# Format per the DAM-93 issue body: | alert | source metric(s) | producer | SLO |
+# The YAML form is the machine-readable version; the comment table below
+# is the human-readable cross-check.
+
+metric_dependency_table:
+  - alert: DlLandingRateDrop
+    metrics: [dl_jito_submit_total, dl_jito_landed_total]
+    producer: "crates/dl-app/src/live_metrics.rs (LiveMetricsAdapter poll)"
+    slo: "SLO #2 (bundle-acceptance)"
+  - alert: DlCapExhaustion
+    metrics: [dl_daily_cap_remaining_lamports]
+    producer: "crates/dl-signer/src/cap.rs (CapState)"
+    slo: "SLO #1 (capital-controls)"
+  - alert: DlReconnectStorm
+    metrics: [feed_reconnect_count]
+    producer: "crates/dl-feed reconnect path (FeedStats)"
+    slo: "n/a (operational; under feed-freshness label)"
+  - alert: DlPnlDrawdown
+    metrics: [dl_realized_pnl_sol]
+    producer: "crates/dl-app/src/live_metrics.rs (PnL accumulator)"
+    slo: "n/a (risk floor; under pnl-floor label)"
+  - alert: DlSilentRevert
+    metrics: [dl_simulate_silent_revert_total]
+    producer: "crates/dl-recon/src/bundles.rs (offline replay)"
+    slo: "SLO #3 (simulate-gate-correctness)"
+  - alert: DlSimulateGateHighRejection
+    metrics: [dl_simulate_approved_total, dl_simulate_rejected_total]
+    producer: "dl-app live runner gate (live.rs) — DAM-79"
+    slo: "SLO #3 (simulate-gate-correctness)"
+
+# Human-readable cross-check (markdown table; comments are valid YAML).
+#
+# | alert                       | source metric(s)                                       | producer                                          | SLO                          |
+# |-----------------------------|--------------------------------------------------------|---------------------------------------------------|------------------------------|
+# | DlLandingRateDrop           | dl_jito_submit_total, dl_jito_landed_total              | crates/dl-app/src/live_metrics.rs                 | SLO #2 (bundle-acceptance)   |
+# | DlCapExhaustion             | dl_daily_cap_remaining_lamports                        | crates/dl-signer/src/cap.rs                       | SLO #1 (capital-controls)    |
+# | DlReconnectStorm            | feed_reconnect_count                                   | crates/dl-feed reconnect path (FeedStats)         | n/a (operational)            |
+# | DlPnlDrawdown               | dl_realized_pnl_sol                                    | crates/dl-app/src/live_metrics.rs                 | n/a (risk floor)             |
+# | DlSilentRevert              | dl_simulate_silent_revert_total                        | crates/dl-recon/src/bundles.rs                    | SLO #3 (simulate-gate)       |
+# | DlSimulateGateHighRejection | dl_simulate_approved_total, dl_simulate_rejected_total | dl-app live runner gate (live.rs) — DAM-79        | SLO #3 (simulate-gate)       |
+
+# Reverse index: metric -> alerts. Keep in sync with metric_registry and
+# metric_dependency_table. A reader can grep this list to answer
+# "what alerts fire on metric Y?" without scanning the dependency table.
+#
+# `unwired` lists registry metrics that do not yet back any alert. These
+# are present in the Prom endpoint (e.g. for the live console) but no
+# PromQL rule currently consumes them. They are not bugs; they are
+# operational readouts whose alerts are filed as follow-up work.
+
+metric_to_alerts:
+  dl_jito_submit_total: [DlLandingRateDrop]
+  dl_jito_landed_total: [DlLandingRateDrop]
+  dl_daily_cap_remaining_lamports: [DlCapExhaustion]
+  feed_reconnect_count: [DlReconnectStorm]
+  dl_realized_pnl_sol: [DlPnlDrawdown]
+  dl_simulate_silent_revert_total: [DlSilentRevert]
+  dl_simulate_approved_total: [DlSimulateGateHighRejection]
+  dl_simulate_rejected_total: [DlSimulateGateHighRejection]
+  unwired:
+    - feed_reconnect_storm_count
+    - feed_stale_pool_count
+    - feed_halted
+
+# ==============================================================================
+# Section 4 — Dashboard coupling
+# ==============================================================================
+#
+# Maps each operator-dashboard card to the alert and/or metric that backs it.
+# Trace path: card -> metric -> alert -> SLO.
+#
+# The operator dashboard lives at dashboard/index.html (DAM-75d, DAM-80).
+# The live console lives at dashboard/live.html (DAM-72).
+# Both are served by `dl-app`; the SLO row reads GET /api/slos, the live
+# cards read GET /api/live at 1 Hz.
+
+dashboard_coupling:
+  - card: "SLO · Availability"
+    file: "dashboard/index.html"
+    selector: "#slo-card-availability"
+    slo: SLO_1
+    metric: dl_daily_cap_remaining_lamports
+    alert: DlCapExhaustion
+    api: "/api/slos"
+  - card: "SLO · Landing rate"
+    file: "dashboard/index.html"
+    selector: "#slo-card-landing_rate"
+    slo: SLO_2
+    metric: "dl_jito_landed_total / dl_jito_submit_total"
+    alert: DlLandingRateDrop
+    api: "/api/slos"
+  - card: "SLO · Simulate-gate"
+    file: "dashboard/index.html"
+    selector: "#slo-card-simulate_gate"
+    slo: SLO_3
+    metric: "dl_simulate_silent_revert_total; dl_simulate_rejected_total / (dl_simulate_approved_total + dl_simulate_rejected_total)"
+    alert: "DlSilentRevert, DlSimulateGateHighRejection"
+    api: "/api/slos"
+  - card: "Live Activity Feed"
+    file: "dashboard/live.html"
+    selector: "#activity-feed"
+    slo: n/a
+    metric: "feed_reconnect_count, feed_reconnect_storm_count, feed_stale_pool_count, feed_halted"
+    alert: "(read-side only — no PromQL alert; the live-state JSON drives the card)"
+    api: "/api/live"
+  - card: "Live · Submissions / Landed"
+    file: "dashboard/live.html"
+    selector: "#live-counter"
+    slo: SLO_2
+    metric: "dl_jito_submit_total, dl_jito_landed_total"
+    alert: DlLandingRateDrop
+    api: "/api/live"
+  - card: "Live · Cap remaining"
+    file: "dashboard/live.html"
+    selector: "#live-cap"
+    slo: SLO_1
+    metric: dl_daily_cap_remaining_lamports
+    alert: DlCapExhaustion
+    api: "/api/live"
+  - card: "Live · Realized PnL"
+    file: "dashboard/live.html"
+    selector: "#live-pnl"
+    slo: n/a
+    metric: dl_realized_pnl_sol
+    alert: DlPnlDrawdown
+    api: "/api/live"
