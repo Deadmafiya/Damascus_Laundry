@@ -1904,6 +1904,39 @@ fn run_metrics_prom(port: u16) -> std::process::ExitCode {
         tip.set(0);
     }
 
+    // DAM-81: wire the four DAM-68 target series
+    // (dl_jito_submit_total, dl_jito_landed_total,
+    // dl_daily_cap_remaining_lamports, dl_realized_pnl_sol)
+    // into the registry. `run_metrics_prom` is the only path
+    // that currently constructs a `MetricsRegistry` and serves
+    // `/metrics`; the `--submit-live` runner is wired in DAM-95.
+    // Here we use throwaway stand-ins for `LiveMetrics`,
+    // `CapState`, and `PnLTracker` so the four series appear
+    // on the first scrape even before the live runner is
+    // running. The stand-ins let SRE flip the Phase 3 alerts to
+    // active and validate the prom render path end-to-end.
+    {
+        use dl_app::live_metrics::{LiveMetricsAdapter, PnLTracker};
+        use dl_executor::metrics::LiveMetrics;
+        use dl_signer::cap::{CapConfig, CapState};
+        use std::sync::Mutex;
+
+        let live = Arc::new(LiveMetrics::new());
+        let cap_state = Arc::new(Mutex::new(CapState::new(CapConfig::default())));
+        let pnl = Arc::new(PnLTracker::new());
+        let adapter = LiveMetricsAdapter::new(
+            registry.clone(),
+            live,
+            cap_state,
+            pnl,
+        );
+        // Initial poll so all four series appear on the
+        // first scrape (Prometheus alerts evaluate `absent()`
+        // and would otherwise flag the rule as no-data for
+        // the first 30 s window).
+        adapter.poll();
+    }
+
     let bind = format!("127.0.0.1:{port}");
     let listener = match TcpListener::bind(&bind) {
         Ok(l) => l,
