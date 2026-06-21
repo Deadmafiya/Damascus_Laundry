@@ -49,6 +49,12 @@ pub enum ReconError {
     #[error("bincode: {0}")]
     Bincode(#[from] bincode::Error),
 
+    /// JSON (de)serialization failure (used by `dl-recon::reconcile`
+    /// for the DAM-64 reconciliation report and the
+    /// `emit-reconciliation` binary).
+    #[error("json: {0}")]
+    Json(String),
+
     /// I/O error from a caller-provided reader/writer.
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
