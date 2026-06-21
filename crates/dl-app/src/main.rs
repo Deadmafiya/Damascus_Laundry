@@ -132,6 +132,24 @@ fn main() {
         return;
     }
 
+    // DAM-58 / Phase 1c: operator pre-flight check for the
+    // mainnet-paper cap. The `dl-app verify-mainnet-paper-cap`
+    // subcommand reads `DL_LIVE_MODE` (and any `DL_DAILY_CAP_LAMPORTS`
+    // / `DL_PER_BUNDLE_CAP_LAMPORTS` overrides) and prints the
+    // *resolved* cap. Exits 0 only if the resolved mode is
+    // `mainnet-paper` AND the daily cap is exactly 0.001 SOL.
+    //
+    // Run BEFORE submitting any bundle on mainnet (or
+    // pre-deploying a release) to confirm the floor is
+    // honored. The subcommand is intentionally a single,
+    // fixed subcommand (no nested args) — the operator
+    // contract is "the env says mainnet-paper, the cap says
+    // 0.001 SOL, exit code says yes".
+    if env::args().nth(1).as_deref() == Some("verify-mainnet-paper-cap") {
+        let code = run_verify_mainnet_paper_cap();
+        std::process::exit(code as i32);
+    }
+
     match (env::var("DL_CAPTURE_PATH"), env::var("DL_RPC_URL")) {
         (Ok(capture_path), Ok(rpc_url)) => {
             let capture_secs: u64 = env::var("DL_CAPTURE_SECS")
@@ -1866,4 +1884,112 @@ fn run_metrics_prom(port: u16) -> std::process::ExitCode {
         let _ = stream.flush();
     }
     std::process::ExitCode::SUCCESS
+}
+
+/// DAM-58 / Phase 1c: operator pre-flight verification of the
+/// mainnet-paper cap.
+///
+/// The contract: this exits 0 **only** when
+/// `DL_LIVE_MODE=mainnet-paper` is set AND the resolved daily
+/// cap is exactly `1_000_000` lamports (0.001 SOL). The intent
+/// is that the operator runs this command BEFORE submitting any
+/// bundle on mainnet (or as part of a release deploy pipeline)
+/// to confirm that the floor is being honored — i.e. that no
+/// env-var override or accidental configuration change has
+/// raised the cap above 0.001 SOL.
+///
+/// Exit codes:
+/// - 0: cap verified — mainnet-paper mode, daily cap = 0.001 SOL
+/// - 1: cap mismatch — mode is not mainnet-paper, or the daily
+///   cap is not 0.001 SOL
+/// - 2: usage / parse error (e.g. `DL_LIVE_MODE` is malformed)
+///
+/// The output is human-readable and script-friendly: a single
+/// `key=value` per line, prefixed with `dl-app:` for grep
+/// stability, so a CI script can `grep -q '^dl-app:cap_ok=1$'`
+/// to assert success without parsing prose.
+fn run_verify_mainnet_paper_cap() -> u8 {
+    use dl_signer::livemode::{LiveMode, ResolvedLiveMode};
+
+    let resolved = match ResolvedLiveMode::from_env() {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("dl-app:cap_mode=invalid");
+            eprintln!("dl-app:cap_ok=0");
+            eprintln!("dl-app:error={e}");
+            return 2;
+        }
+    };
+
+    let mode_str = resolved.mode.as_str();
+    let daily_sol = resolved.daily_cap_lamports as f64 / 1_000_000_000.0;
+    let per_bundle_sol =
+        resolved.per_bundle_cap_lamports as f64 / 1_000_000_000.0;
+
+    let mode_ok = resolved.mode == LiveMode::MainnetPaper;
+    let cap_ok = resolved.daily_cap_lamports
+        == dl_signer::cap::MAINNET_PAPER_DAILY_CAP_FLOOR_LAMPORTS;
+    let ok = mode_ok && cap_ok;
+
+    // Stable key=value output. Use the canonical SOL value
+    // (1 SOL = 1_000_000_000 lamports) so the operator sees the
+    // same number regardless of which base unit they expect.
+    println!("dl-app:cap_mode={mode_str}");
+    println!(
+        "dl-app:cap_daily_lamports={}",
+        resolved.daily_cap_lamports
+    );
+    println!(
+        "dl-app:cap_daily_sol={:.9}",
+        daily_sol
+    );
+    println!(
+        "dl-app:cap_per_bundle_lamports={}",
+        resolved.per_bundle_cap_lamports
+    );
+    println!(
+        "dl-app:cap_per_bundle_sol={:.9}",
+        per_bundle_sol
+    );
+    println!(
+        "dl-app:cap_floor_expected_lamports={}",
+        dl_signer::cap::MAINNET_PAPER_DAILY_CAP_FLOOR_LAMPORTS
+    );
+    println!(
+        "dl-app:cap_mode_ok={}",
+        u8::from(mode_ok)
+    );
+    println!(
+        "dl-app:cap_value_ok={}",
+        u8::from(cap_ok)
+    );
+    println!("dl-app:cap_ok={}", u8::from(ok));
+
+    if !ok {
+        // Human-readable explanation. The grep-friendly lines
+        // above are the contract; this is for the operator's
+        // log scrollback.
+        if !mode_ok {
+            eprintln!(
+                "verify-mainnet-paper-cap: DL_LIVE_MODE is {mode_str:?}, expected mainnet-paper. \
+                 Set DL_LIVE_MODE=mainnet-paper before submitting on the dry-run path."
+            );
+        }
+        if !cap_ok {
+            eprintln!(
+                "verify-mainnet-paper-cap: resolved daily cap is {} lamports, \
+                 expected exactly {} (0.001 SOL). The cap was raised or \
+                 overridden; check DL_DAILY_CAP_LAMPORTS and any CapConfig::with_*_floor \
+                 call sites.",
+                resolved.daily_cap_lamports,
+                dl_signer::cap::MAINNET_PAPER_DAILY_CAP_FLOOR_LAMPORTS,
+            );
+        }
+        return 1;
+    }
+
+    println!(
+        "verify-mainnet-paper-cap: OK — mainnet-paper mode, daily cap 0.001 SOL honored"
+    );
+    0
 }
