@@ -201,6 +201,7 @@ fn run_capture(rpc_url: &str, capture_path: &str, capture_secs: u64) {
         match tee.next_event() {
             Some(FeedEvent::Slot { .. }) => slots += 1,
             Some(FeedEvent::AccountUpdate { .. }) => accounts += 1,
+            Some(FeedEvent::Pool { .. } | FeedEvent::StalePoolHalt { .. }) => {}
             None => std::thread::sleep(Duration::from_millis(50)),
         }
     }
@@ -1805,6 +1806,12 @@ fn run_dry_run() {
                     Ok(_amm) => decoded_ok += 1,
                     Err(_e) => decoded_err += 1,
                 }
+            }
+            FeedEvent::Pool { .. } | FeedEvent::StalePoolHalt { .. } => {
+                // Stats counters track Slot + AccountUpdate only;
+                // Pool + StalePoolHalt are v2.0 events that don't
+                // contribute to the offline capture-vs-cycle test
+                // stats surfaced by this helper.
             }
         }
     }
