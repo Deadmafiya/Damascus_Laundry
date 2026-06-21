@@ -12,3 +12,10 @@ thiserror = "1"
 [lib]
 name = "dl_assert_sdk"
 path = "src/lib.rs"
+
+[[bin]]
+name = "dl-assert-sdk"
+path = "src/bin/dl_assert_sdk.rs"
+
+[dev-dependencies]
+# (none yet)
