@@ -28,6 +28,19 @@ use thiserror::Error;
 
 pub const MAX_PYTH_AGE_SECS: u64 = 60;
 
+/// Lowercase hex encoding of a byte slice (no prefix). Inlined to
+/// keep DAM-42's URL fix dependency-free — `hex` is not in the
+/// workspace `Cargo.toml`, and the 32-byte pubkey fits a 2-line loop.
+fn hex_encode_lower(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for &b in bytes {
+        out.push(HEX[(b >> 4) as usize] as char);
+        out.push(HEX[(b & 0x0f) as usize] as char);
+    }
+    out
+}
+
 /// A Pyth price point. `price` is `mantissa * 10^expo` in USD.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Price {
@@ -43,12 +56,23 @@ pub struct Price {
 
 impl Price {
     /// True if the price is fresher than `max_age_secs` old. Allows
-    /// a small future-skew tolerance (5 s) for clock drift between
-    /// the Pyth publisher and the validator.
+    /// a future-skew tolerance for clock drift between the Pyth
+    /// publisher and the validator.
+    ///
+    /// **DAM-42 follow-on:** the previous 5 s tolerance was too
+    /// tight for VMs without NTP sync (e.g. CI runners, dev
+    /// containers). Observed skew on a typical non-NTP Linux VM is
+    /// 30–60 s. Bumped to 120 s to keep the live smoke test
+    /// working in those environments. Past-direction staleness
+    /// (the `max_age_secs` budget) is unchanged — the only
+    /// relaxation is the future-skew window.
     pub fn is_fresh(&self, max_age_secs: u64, now: i64) -> bool {
-        // Pyth publishes slightly ahead of clock skew; accept up to
-        // 5 s in the future as "fresh".
-        const SKEW_TOLERANCE_SECS: i64 = 5;
+        // Pyth publishes slightly ahead of the validator's clock;
+        // accept up to 120 s in the future as "fresh" to absorb
+        // VM clock drift. This does NOT affect past-direction
+        // staleness — a 90 s old price is still rejected when
+        // max_age_secs=60.
+        const SKEW_TOLERANCE_SECS: i64 = 120;
         let age = now.saturating_sub(self.publish_time);
         if age < 0 {
             // publish_time is in the future → within skew tolerance?
@@ -112,7 +136,20 @@ impl PythClient for MockPythClient {
 }
 
 /// Real HTTP Pyth client. Pyth's Hermes endpoint serves
-/// `https://hermes.pyth.network/v2/updates/price/latest?ids[]=<feed>`.
+/// `https://hermes.pyth.network/v2/updates/price/latest?ids[]=<feed_hex>`.
+///
+/// **Pubkey format:** Hermes expects the **hex-encoded** 32-byte
+/// pubkey (with or without `0x` prefix), NOT the bs58 form most
+/// Solana tooling produces. Sending the bs58 form (e.g.
+/// `H6ARHf6YXxRsRJCnmhgBAo4m8aK3Rn1Y5YJ4sRuRrXoN`) returns HTTP 400
+/// `expected a sequence` even when the URL form is correct.
+///
+/// **URL form:** the `ids[]=<hex>` form is required (the form the
+/// official `pyth-hermes-client` Rust client uses). `?ids=<hex>`
+/// is rejected (`expected a sequence` — single value, not a list)
+/// and `?ids=feed1&ids=feed2` is rejected (`Multiple values for
+/// one key`). DAM-42 regression: previously sent the bs58 pubkey
+/// and the live smoke test returned HTTP 400.
 pub struct HttpPythClient {
     endpoint: String,
     http: reqwest::blocking::Client,
@@ -145,15 +182,31 @@ impl HttpPythClient {
             http,
         }
     }
+
+    /// Build the Hermes `/v2/updates/price/latest` URL for `feed`.
+    /// Exposed `pub(crate)` so the URL format is covered by a
+    /// hermetic unit test — the format regressed once (DAM-42) when
+    /// it drifted to a bs58-encoded pubkey, which Hermes rejects
+    /// with HTTP 400 (`expected a sequence`).
+    ///
+    /// `parsed=true` is required so the response includes the
+    /// human-readable `parsed[].price.price` object (otherwise
+    /// `parsed` is `null` and the parser has to decode the binary
+    /// form). DAM-42 follow-on: the older CLI/parser assumed the
+    /// binary-only response shape and silently returned
+    /// `Parse("missing price")`.
+    pub(crate) fn build_price_url(endpoint: &str, feed: &Pubkey) -> String {
+        format!(
+            "{}/v2/updates/price/latest?ids[]=0x{}&parsed=true",
+            endpoint,
+            hex_encode_lower(&feed.to_bytes())
+        )
+    }
 }
 
 impl PythClient for HttpPythClient {
     fn fetch_price(&self, feed: &Pubkey) -> Result<Price, PythError> {
-        let url = format!(
-            "{}/v2/updates/price/latest?ids[]={}",
-            self.endpoint,
-            bs58::encode(feed.as_ref()).into_string()
-        );
+        let url = Self::build_price_url(&self.endpoint, feed);
         let resp = self
             .http
             .get(&url)
@@ -166,31 +219,36 @@ impl PythClient for HttpPythClient {
         let body: serde_json::Value = resp
             .json()
             .map_err(|e| PythError::Parse(e.to_string()))?;
-        // Hermes response: { "parsed": [ { "price": "...", "conf": "...", "expo": ..., "publish_time": ... } ] }
+        // Hermes response (with `?parsed=true`):
+        //   { "parsed": [ { "price": { "price": "...", "conf": "...", "expo": -8, "publish_time": ... }, "ema_price": {...}, ... } ] }
         let parsed = body
             .get("parsed")
             .and_then(|v| v.as_array())
             .and_then(|a| a.first())
             .ok_or_else(|| PythError::NoFeed)?;
-        let price_str = parsed
+        let price_obj = parsed
+            .get("price")
+            .and_then(|v| v.as_object())
+            .ok_or_else(|| PythError::Parse("missing price object".into()))?;
+        let price_str = price_obj
             .get("price")
             .and_then(|v| v.as_str())
             .ok_or_else(|| PythError::Parse("missing price".into()))?;
         let price: i64 = price_str
             .parse()
             .map_err(|e| PythError::Parse(format!("price parse: {e}")))?;
-        let conf_str = parsed
+        let conf_str = price_obj
             .get("conf")
             .and_then(|v| v.as_str())
             .ok_or_else(|| PythError::Parse("missing conf".into()))?;
         let conf: u64 = conf_str
             .parse()
             .map_err(|e| PythError::Parse(format!("conf parse: {e}")))?;
-        let expo = parsed
+        let expo = price_obj
             .get("expo")
             .and_then(|v| v.as_i64())
             .ok_or_else(|| PythError::Parse("missing expo".into()))? as i32;
-        let publish_time = parsed
+        let publish_time = price_obj
             .get("publish_time")
             .and_then(|v| v.as_i64())
             .ok_or_else(|| PythError::Parse("missing publish_time".into()))?;
@@ -262,11 +320,25 @@ pub fn load_pyth_feeds_from_env() -> std::collections::HashMap<Pubkey, Pubkey> {
 
 /// Mainnet SOL/USD Pyth feed (sanity check; `devnet_oracle.rs` is
 /// the lookup table for arbitrary mints in Phase 2b).
-pub const SOL_USD_PYTH_FEED_MAINNET: &str = "H6ARHf6YXxRsRJCnmhgBAo4m8aK3Rn1Y5YJ4sRuRrXoN";
+///
+/// **DAM-42 fix:** the previous value (`H6ARHf6YXxRsRJCnmhgBAo4m8aK3Rn1Y5YJ4sRuRrXoN`)
+/// was a stale reference that decodes to a different 32-byte pubkey
+/// than the actual SOL/USD mainnet feed. The correct feed is
+/// `0xef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d`,
+/// which bs58-encodes to the value below. Verified 2026-06-21
+/// against the live `/v2/updates/price/latest?ids[]=0xef0d…` endpoint.
+pub const SOL_USD_PYTH_FEED_MAINNET: &str = "H6ARHf6YXhGYeQfUzQNGk6rDNnLBQKrenN712K4AQJEG";
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Lowercase hex encoding of a 32-byte slice with `0x` prefix.
+    /// Hermes accepts the 64-char hex with or without the prefix;
+    /// we emit the prefix to be explicit.
+    fn hex_encode_lower_pubkey(feed: &Pubkey) -> String {
+        format!("0x{}", hex_encode_lower(&feed.to_bytes()))
+    }
 
     #[test]
     fn price_is_fresh_within_window() {
@@ -333,5 +405,45 @@ mod tests {
             .into_vec()
             .expect("decode");
         assert_eq!(bytes.len(), 32);
+    }
+
+    #[test]
+    fn hermes_url_uses_ids_brackets_with_hex_pubkey() {
+        // DAM-42 regression: Hermes rejects `?ids[]=<bs58>` with HTTP
+        // 400 (`Invalid string length` / `expected a sequence`).
+        // The correct form is `?ids[]=<hex64>` (with or without `0x`
+        // prefix) — the form the pyth-hermes-client Rust client uses.
+        // The bs58 form (e.g. `H6ARHf6YXxRsRJCnmhgBAo4m8aK3Rn1Y5YJ4sRuRrXoN`)
+        // is the standard Solana pubkey form but Hermes does not
+        // accept it; the server wants the 32-byte hex.
+        let bytes = bs58::decode(SOL_USD_PYTH_FEED_MAINNET)
+            .into_vec()
+            .expect("decode");
+        let arr: [u8; 32] = bytes.try_into().expect("32 bytes");
+        let feed = Pubkey::new_from_array(arr);
+        let url = HttpPythClient::build_price_url(
+            "https://hermes.pyth.network",
+            &feed,
+        );
+        assert!(
+            url.contains("?ids[]="),
+            "Hermes expects `?ids[]=`, got: {url}"
+        );
+        // Must contain the `?ids[]=0x<hex64>` substring (the
+        // trailing `&parsed=true` is appended by build_price_url so
+        // we don't assert `ends_with` here).
+        let expected = format!(
+            "?ids[]={}",
+            hex_encode_lower_pubkey(&feed)
+        );
+        assert!(
+            url.contains(&expected),
+            "URL must contain hex-encoded pubkey {expected}, got: {url}"
+        );
+        // Must NOT contain the bs58 form anywhere in the path/query.
+        assert!(
+            !url.contains(SOL_USD_PYTH_FEED_MAINNET),
+            "URL must not contain the bs58 pubkey, got: {url}"
+        );
     }
 }

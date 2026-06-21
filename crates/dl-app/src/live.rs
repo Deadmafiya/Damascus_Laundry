@@ -558,9 +558,8 @@ pub fn eval_params_from_calibration(
 /// `assemble_pool`, `assemble_whirlpool_pool`,
 /// `assemble_whirlpool_real_pool`, `decode_amm_info`,
 /// `decode_spl_token_account`, `decode_whirlpool`, and
-/// `decode_whirlpool_real` — none of which exist on disk at HEAD
-/// (the build fails to compile the original body with 26 errors).
-/// The DAM-62 acceptance test
+/// `decode_whirlpool_real` — none of which exist on disk in the
+/// state needed by this signature. The DAM-62 acceptance test
 /// (`dl-state/tests/dam62_orca_whirlpool_3leg.rs`) passes because
 /// it constructs types locally; the production path is unwired.
 ///
