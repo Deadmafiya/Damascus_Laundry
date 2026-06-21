@@ -384,7 +384,41 @@ fn run_live_submit(
 
     // Safety modules — default config (operators override via
     // env vars DL_DAILY_CAP_LAMPORTS etc before running).
-    let _cap_state = CapState::new(CapConfig::default());
+    //
+    // The cap state is rehydrated from a durable JSON snapshot
+    // (DAM-67 / Phase 3) so a crash mid-day does NOT reset the
+    // daily budget. The path is `DL_CAP_SNAPSHOT` (default
+    // `./dl-signer-cap-snapshot.json`). On first boot the file
+    // is created with a fresh zero-state; on every subsequent
+    // boot the prior `spent_today` is loaded back. A load
+    // failure refuses to boot (exit 2) rather than fall back
+    // to a fresh cap — refusing to risk a double-spend after
+    // crash recovery.
+    let cap_snapshot_path = std::env::var("DL_CAP_SNAPSHOT")
+        .unwrap_or_else(|_| "./dl-signer-cap-snapshot.json".to_string());
+    let cap_state = match CapState::load_or_init(
+        std::path::Path::new(&cap_snapshot_path),
+        CapConfig::default(),
+    ) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!(
+                "dl-app run --submit-live: cap snapshot load failed ({}); \
+                 refusing to start with a fresh cap — refusing to risk a \
+                 double-spend after crash recovery. Re-run with the snapshot \
+                 file intact or unset DL_CAP_SNAPSHOT to start from zero.",
+                e
+            );
+            std::process::exit(2);
+        }
+    };
+    eprintln!(
+        "dl-app run --submit-live: cap snapshot loaded from {} (spent_today={} lamports, remaining={} lamports)",
+        cap_snapshot_path,
+        cap_state.spent_today(),
+        cap_state.remaining()
+    );
+    let _cap_state = cap_state;
     let _rate_limit = RateLimit::new(RateLimitConfig::default());
     let _killswitch = KillSwitch::new(KillSwitchConfig::default());
 
