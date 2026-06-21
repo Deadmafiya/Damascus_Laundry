@@ -9,6 +9,7 @@ pub mod config;
 pub mod dry_run;
 pub mod error;
 pub mod live;
+pub mod live_status;
 pub mod metrics;
 pub mod metrics_prom;
 pub mod opportunity;
