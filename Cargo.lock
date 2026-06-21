@@ -1314,6 +1314,8 @@ version = "0.0.0"
 dependencies = [
  "bs58",
  "dl-core",
+ "dl-detect",
+ "dl-stream",
  "proptest",
  "serde",
  "thiserror 1.0.69",
