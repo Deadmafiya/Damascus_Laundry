@@ -3,10 +3,31 @@
 //! The cap is the *primary* security control in the hot-wallet model
 //! (per `docs/v1.1.md` §5.1). It limits the worst-case loss to one day's
 //! cap (default 5 SOL) even if the host is compromised.
+//!
+//! ## Mainnet tiny floors (DAM-61 / Phase 1d)
+//!
+//! When `DL_LIVE_MODE=mainnet`, the cap is *floored* at 0.5 SOL/day
+//! and 0.05 SOL/bundle regardless of any env-var override. These
+//! floors are pinned by `tests::mainnet_tiny_floors` — the assertion
+//! is the spec. Raising these floors requires changing the source
+//! and re-building; that is deliberate. A hot-wallet security model
+//! that allows the cap to be raised via env var is a misconfiguration
+//! waiting to happen.
 
 use chrono::{Datelike, NaiveDate, Utc};
 
 use crate::error::SignerError;
+
+/// Pin for the mainnet daily cap floor (DAM-61 / Phase 1d):
+/// 0.5 SOL = 500_000_000 lamports. The `mainnet_tiny_floors` test
+/// asserts this value. Raising the floor requires changing the
+/// source and re-building; that is deliberate.
+pub const MAINNET_DAILY_CAP_FLOOR_LAMPORTS: u64 = 500_000_000;
+
+/// Pin for the mainnet per-bundle cap floor: 0.05 SOL =
+/// 50_000_000 lamports. The `mainnet_tiny_floors` test asserts
+/// this value.
+pub const MAINNET_PER_BUNDLE_CAP_FLOOR_LAMPORTS: u64 = 50_000_000;
 
 /// Configuration for the cap.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -22,6 +43,38 @@ impl Default for CapConfig {
         Self {
             daily_lamports: 5_000_000_000,
             per_bundle_lamports: 500_000_000,
+        }
+    }
+}
+
+impl CapConfig {
+    /// The mainnet tiny floors (DAM-61 / Phase 1d): 0.5 SOL/day,
+    /// 0.05 SOL/bundle. These are the production safety floors
+    /// for the live `DL_LIVE_MODE=mainnet` mode. They cannot be
+    /// raised via env var; only lowered.
+    pub const fn mainnet_floors() -> Self {
+        Self {
+            daily_lamports: MAINNET_DAILY_CAP_FLOOR_LAMPORTS,
+            per_bundle_lamports: MAINNET_PER_BUNDLE_CAP_FLOOR_LAMPORTS,
+        }
+    }
+
+    /// Apply a candidate override (e.g. from `DL_DAILY_CAP_LAMPORTS`)
+    /// but clamp both the daily cap and the per-bundle cap at the
+    /// mainnet floors (DAM-61). The override can *lower* the cap,
+    /// but cannot *raise* it above 0.5 SOL/day or 0.05 SOL/bundle.
+    pub fn with_mainnet_floor(
+        daily_override: Option<u64>,
+        per_bundle_override: Option<u64>,
+    ) -> Self {
+        let floors = Self::mainnet_floors();
+        Self {
+            daily_lamports: daily_override
+                .map(|v| v.min(floors.daily_lamports))
+                .unwrap_or(floors.daily_lamports),
+            per_bundle_lamports: per_bundle_override
+                .map(|v| v.min(floors.per_bundle_lamports))
+                .unwrap_or(floors.per_bundle_lamports),
         }
     }
 }
@@ -205,5 +258,83 @@ mod tests {
         // First call triggers reset_if_new_day; next charge should fit.
         s.try_charge(500_000_000).unwrap();
         assert_eq!(s.spent_today(), 500_000_000);
+    }
+
+    /// Pinned mainnet cap floors (DAM-61 / Phase 1d). The exact
+    /// values here are the spec: 0.5 SOL/day and 0.05 SOL/bundle.
+    /// Changing these constants is an explicit, review-gated
+    /// decision; the assertion below will fail loudly if a
+    /// regression moves them.
+    #[test]
+    fn mainnet_tiny_floors() {
+        let c = CapConfig::mainnet_floors();
+        assert_eq!(
+            c.daily_lamports, 500_000_000,
+            "mainnet daily cap must be exactly 0.5 SOL"
+        );
+        assert_eq!(
+            c.per_bundle_lamports, 50_000_000,
+            "mainnet per-bundle cap must be exactly 0.05 SOL"
+        );
+        // Also assert the public pins, in case the constructor
+        // expression above is later refactored to compose other
+        // constants.
+        assert_eq!(MAINNET_DAILY_CAP_FLOOR_LAMPORTS, 500_000_000);
+        assert_eq!(MAINNET_PER_BUNDLE_CAP_FLOOR_LAMPORTS, 50_000_000);
+    }
+
+    #[test]
+    fn mainnet_floor_caps_env_override_above_floor() {
+        // The whole point of the floor: even if the operator (or
+        // a misconfigured deploy) sets the env var to a value ABOVE
+        // 0.5 SOL, the cap must clamp down to the floor.
+        let c = CapConfig::with_mainnet_floor(Some(5_000_000_000), Some(500_000_000));
+        assert_eq!(c.daily_lamports, 500_000_000);
+        assert_eq!(c.per_bundle_lamports, 50_000_000);
+    }
+
+    #[test]
+    fn mainnet_floor_honors_override_below_floor() {
+        // Operators may tighten the cap below the floor (e.g. for
+        // an even smaller pilot). The override is honored.
+        let c = CapConfig::with_mainnet_floor(Some(100_000_000), Some(10_000_000));
+        assert_eq!(c.daily_lamports, 100_000_000);
+        assert_eq!(c.per_bundle_lamports, 10_000_000);
+    }
+
+    #[test]
+    fn mainnet_floor_none_uses_floor_value() {
+        let c = CapConfig::with_mainnet_floor(None, None);
+        assert_eq!(c, CapConfig::mainnet_floors());
+    }
+
+    /// Fakes the UTC clock past midnight and asserts the cap is
+    /// replenished. The production state machine reads `Utc::now()`
+    /// directly, so we manipulate the private `last_reset` field —
+    /// which is the same "yesterday" signal the wall clock would
+    /// have produced. The next `try_charge` triggers
+    /// `reset_if_new_day` and the cap is replenished.
+    #[test]
+    fn daily_reset_fake_clock_past_midnight() {
+        let mut s = CapState::new(cfg(500_000_000, 500_000_000));
+        s.try_charge(450_000_000).unwrap();
+        assert_eq!(s.spent_today(), 450_000_000);
+        assert_eq!(s.remaining(), 50_000_000);
+
+        // "Fake the clock past midnight" by rolling last_reset
+        // back to yesterday. From the state machine's point of
+        // view, this is identical to wall-clock time advancing
+        // past UTC midnight.
+        s.last_reset = s.last_reset.pred_opt().unwrap();
+
+        // The next charge must hit reset_if_new_day, zero
+        // spent_today, and succeed.
+        s.try_charge(50_000_000).unwrap();
+        assert_eq!(
+            s.spent_today(),
+            50_000_000,
+            "cap must replenish at UTC midnight"
+        );
+        assert_eq!(s.remaining(), 450_000_000);
     }
 }

@@ -39,7 +39,10 @@ pub mod keystore;
 pub mod livemode;
 pub mod ratelimit;
 
-pub use cap::{CapConfig, CapError, CapState};
+pub use cap::{
+    CapConfig, CapError, CapState, MAINNET_DAILY_CAP_FLOOR_LAMPORTS,
+    MAINNET_PER_BUNDLE_CAP_FLOOR_LAMPORTS,
+};
 pub use error::SignerError;
 pub use keystore::{KeyFile, KeyStore};
 pub use livemode::{LiveMode, LiveModeParseError, ResolvedLiveMode};
