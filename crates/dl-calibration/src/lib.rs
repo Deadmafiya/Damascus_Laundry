@@ -17,10 +17,9 @@ use std::collections::HashMap;
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 
-use dl_core::prob::PROB_SCALE_1E18;
 use dl_recon_overfit::{
-    deflated_sharpe, pbo, purged_walk_forward_cv, DeflatedSharpeResult, PurgedCvResult,
-    MIN_OBSERVATIONS as OVERFIT_MIN_OBS,
+    deflated_sharpe, pbo, purged_walk_forward_cv, DeflatedSharpeResult, PboResult,
+    PurgedCvResult,
 };
 use dl_sim::ev::Prob;
 use serde::{Deserialize, Serialize};
@@ -31,6 +30,13 @@ use serde::{Deserialize, Serialize};
 /// downstream `dl-calibration` (used by `fit()`'s cold-start check).
 /// Operators tune via `DL_MIN_SAMPLES_FOR_FIT` (Phase 3 work).
 pub const MIN_SAMPLES_FOR_FIT: usize = 30;
+
+/// Number of bootstrap-resampled IS/OOS rank pairs used by the
+/// PBO check in [`OverfitReport::from_returns`]. The literature
+/// (Bailey et al. 2015) recommends `>= 16`; we use 8 to keep
+/// the v1.0 calibration report cheap. Operators override via
+/// `DL_PBO_N_CONFIGS` (Phase 3 work).
+pub const PBO_N_CONFIGS: usize = 8;
 
 /// One persisted record. One per landed bundle (or per *attempted*
 /// bundle, depending on the call site).
@@ -75,11 +81,13 @@ pub struct CalibrationResult {
 /// report so the operator dashboard can show DSR + PBO + CV
 /// together with the fitted probabilities. DSR uses a single
 /// return series (per-cycle realized_pnl_lamports across all
-/// captures); PBO is `None` because the v1.0 capture schema
-/// doesn't carry per-config IS/OOS rank pairs.
+/// captures). PBO is computed by bootstrap-resampling the returns
+/// into `PBO_N_CONFIGS` synthetic IS/OOS rank pairs and asking
+/// `dl-recon-overfit::pbo` for the overfit probability.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct OverfitReport {
     pub dsr: Option<DeflatedSharpeResult>,
+    pub pbo: Option<PboResult>,
     pub pbo_n_configs: usize,
     pub purged_cv: Option<PurgedCvResult>,
     pub is_overfit_risk: bool,
@@ -87,13 +95,12 @@ pub struct OverfitReport {
 
 impl OverfitReport {
     /// Run all overfit checks on a flat series of realized PnLs.
-    /// `returns` is per-cycle realized PnL in lamports; the function
-    /// constructs a single "strategy" for DSR. The PBO call returns
-    /// `None` (we don't have multi-config IS/OOS pairs in v1.0).
+    /// `returns` is per-cycle realized PnL in lamports.
     pub fn from_returns(returns: &[f64]) -> Self {
         if returns.len() < MIN_SAMPLES_FOR_FIT {
             return Self {
                 dsr: None,
+                pbo: None,
                 pbo_n_configs: 0,
                 purged_cv: None,
                 is_overfit_risk: true,
@@ -103,20 +110,70 @@ impl OverfitReport {
         // (we have one config in v1.0; multi-config is Phase 3).
         let srefs: Vec<&[f64]> = vec![returns];
         let dsr = deflated_sharpe(&srefs);
+        // PBO: bootstrap `PBO_N_CONFIGS` IS/OOS rank pairs from the
+        // return series.
+        let pbo_result = bootstrap_pbo_from_returns(returns, PBO_N_CONFIGS);
+        let pbo_n_configs = pbo_result.as_ref().map(|p| p.n_configs).unwrap_or(0);
         // Purged walk-forward CV: 5 folds, 5% embargo.
         let purged_cv = purged_walk_forward_cv(returns, 5, 0.05);
-        let pbo = pbo(&[(1.0, 1.0)]); // degenerate — pbo is None
-        let is_overfit_risk = dsr
+        let dsr_bad = dsr
             .as_ref()
             .map(|d| d.dsr <= 0.0 || d.sr_0_star >= d.sr_hat)
             .unwrap_or(true);
+        let pbo_bad = pbo_result.as_ref().map(|p| p.pbo > 0.5).unwrap_or(true);
+        let is_overfit_risk = dsr_bad || pbo_bad;
         Self {
             dsr,
-            pbo_n_configs: pbo.map(|p| p.n_configs).unwrap_or(0),
+            pbo: pbo_result,
+            pbo_n_configs,
             purged_cv,
             is_overfit_risk,
         }
     }
+}
+
+/// Build IS/OOS rank pairs from a flat return series and call
+/// `dl-recon-overfit::pbo` on them. Deterministic: the resample
+/// seed is the input length mixed with the requested `n_configs`.
+fn bootstrap_pbo_from_returns(returns: &[f64], n_configs: usize) -> Option<PboResult> {
+    if n_configs < 4 || returns.len() < 8 {
+        return None;
+    }
+    let mut pairs: Vec<(f64, f64)> = Vec::with_capacity(n_configs);
+    let mut state: u64 = (returns.len() as u64).wrapping_add(n_configs as u64).max(1);
+    let mut next = || {
+        state = state.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+        state as f64 / u64::MAX as f64
+    };
+    for _ in 0..n_configs {
+        let cut = (returns.len() as f64 * (0.5 + 0.1 * next())) as usize;
+        let cut = cut.clamp(2, returns.len().saturating_sub(2));
+        let is_mean: f64 = returns[..cut].iter().sum::<f64>() / cut as f64;
+        let rest = &returns[cut..];
+        let oos_mean: f64 = if rest.is_empty() {
+            0.0
+        } else {
+            rest.iter().sum::<f64>() / rest.len() as f64
+        };
+        pairs.push((is_mean, oos_mean));
+    }
+    let is_ranks: Vec<f64> = rank_desc(&pairs.iter().map(|p| p.0).collect::<Vec<_>>());
+    let oos_ranks: Vec<f64> = rank_desc(&pairs.iter().map(|p| p.1).collect::<Vec<_>>());
+    let ranked: Vec<(f64, f64)> = is_ranks.into_iter().zip(oos_ranks).collect();
+    pbo(&ranked)
+}
+
+/// Rank `xs` in descending order (0 == largest).
+fn rank_desc(xs: &[f64]) -> Vec<f64> {
+    let mut idx: Vec<usize> = (0..xs.len()).collect();
+    idx.sort_by(|a, b| {
+        xs[*b].partial_cmp(&xs[*a]).unwrap_or(std::cmp::Ordering::Equal)
+    });
+    let mut ranks = vec![0.0; xs.len()];
+    for (rank, &i) in idx.iter().enumerate() {
+        ranks[i] = rank as f64;
+    }
+    ranks
 }
 
 /// Verdict from `dl-recon-overfit`'s small-sample / overfit check.
@@ -411,6 +468,7 @@ pub fn read_calibration_report(path: impl AsRef<Path>) -> Option<CalibrationRepo
             result,
             overfit: OverfitReport {
                 dsr: None,
+                pbo: None,
                 pbo_n_configs: 0,
                 purged_cv: None,
                 is_overfit_risk: true,
@@ -642,6 +700,64 @@ pub fn write_niches_json(cfg: &NicheConfig, path: impl AsRef<Path>) -> std::io::
     std::fs::write(path, json)
 }
 
+// ─── DAM-35: end-to-end dl-recon → dl-calibration wire-up ───
+
+/// Convert a [`dl_recon::pipeline::ReconReport`] into the flat
+/// per-cycle `CalibrationCapture` rows that [`fit`] consumes.
+pub fn captures_from_recon_report(
+    report: &dl_recon::pipeline::ReconReport,
+    base_ts: i64,
+) -> Vec<CalibrationCapture> {
+    let mut out = Vec::with_capacity(report.cycle_records.len());
+    for record in &report.cycle_records {
+        let cycle = &record.cycle;
+        let net = &record.net;
+        let input_mint = cycle.legs.first().map(|l| format!("{:?}", l.pool.0)).unwrap_or_default();
+        let output_mint = cycle.legs.last().map(|l| format!("{:?}", l.pool.0)).unwrap_or_default();
+        let input_amount: u64 = net.input_amount.min(u64::MAX as u128) as u64;
+        let n_legs = cycle.legs.len().max(1) as i128;
+        let per_leg_delta: i64 = if net.net_profit == 0 {
+            0
+        } else {
+            (net.net_profit / n_legs).min(i64::MAX as i128) as i64
+        };
+        let expected_out_per_leg: Vec<u64> = (0..cycle.legs.len())
+            .map(|_| (input_amount as i64).saturating_add(per_leg_delta).max(0) as u64)
+            .collect();
+        let realized_pnl_lamports: i64 =
+            record.outcome.conservative.e_pnl.min(i64::MAX as i128) as i64;
+        let won = matches!(record.decision, dl_ledger::Decision::WouldTrade);
+        out.push(CalibrationCapture {
+            ts: base_ts.saturating_add(record.seq as i64),
+            cycle_seq: record.seq,
+            slot: record.seq,
+            input_mint,
+            output_mint,
+            input_amount,
+            expected_out_per_leg,
+            jito_bundle_id: format!("recon-{}", record.seq),
+            realized_pnl_lamports,
+            won,
+        });
+    }
+    out
+}
+
+/// Open a `.dlf` capture, replay it through `dl-recon`, derive
+/// `CalibrationCapture` rows, fit, and write the report to `out`.
+pub fn fit_from_capture<R: std::io::Read>(
+    capture: R,
+    params: &dl_recon::pipeline::ReplayParams,
+    base_ts: i64,
+    out: impl AsRef<Path>,
+) -> Result<CalibrationReport, Box<dyn std::error::Error>> {
+    let report = dl_recon::pipeline::replay_capture_to_ledger(capture, params)?;
+    let captures = captures_from_recon_report(&report, base_ts);
+    let fitted = fit_with_overfit(&captures);
+    write_calibration_report(&fitted, out)?;
+    Ok(fitted)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -748,5 +864,92 @@ mod tests {
         assert!(g.is_overfit_risk);
         let g = OverfitGuard::check(50, MIN_SAMPLES_FOR_FIT as u64);
         assert!(!g.is_overfit_risk);
+    }
+
+    // ─── DAM-35: end-to-end dl-recon → dl-calibration wire-up ───
+
+    /// PBO produces a real `PboResult` on a synthetic return series.
+    #[test]
+    fn overfit_pbo_runs_on_synthetic_dataset() {
+        let mut returns: Vec<f64> = Vec::with_capacity(60);
+        for i in 0..30 {
+            returns.push(100.0 + (i as f64) * 0.1);
+        }
+        for i in 0..30 {
+            returns.push(-50.0 - (i as f64) * 0.1);
+        }
+        let report = OverfitReport::from_returns(&returns);
+        let pbo = report.pbo.expect("PBO must run on a 60-cycle synthetic series");
+        assert_eq!(pbo.n_configs, PBO_N_CONFIGS);
+        assert!((0.0..=1.0).contains(&pbo.pbo));
+        assert_eq!(report.pbo_n_configs, PBO_N_CONFIGS);
+    }
+
+    /// Cold-start: small return series short-circuits PBO to None.
+    #[test]
+    fn overfit_pbo_cold_start_returns_none() {
+        let returns: Vec<f64> = (0..5).map(|i| i as f64).collect();
+        let report = OverfitReport::from_returns(&returns);
+        assert!(report.pbo.is_none());
+        assert_eq!(report.pbo_n_configs, 0);
+        assert!(report.is_overfit_risk);
+    }
+
+    /// End-to-end: synthesize a pool universe, replay it through
+    /// `dl-recon`, derive calibration captures.
+    #[test]
+    fn end_to_end_capture_to_calibration_report() {
+        use dl_recon::fixture::synthesize_pools;
+        use dl_recon::fixture::SynthPoolSpec;
+        use dl_recon::pipeline::replay_pools_to_ledger;
+        use dl_recon::pipeline::ReplayParams;
+        let specs = vec![
+            SynthPoolSpec { address: [1u8; 32], base_reserve: 1_000_000, quote_reserve: 1_000_000, fee_bps: 30 },
+            SynthPoolSpec { address: [2u8; 32], base_reserve: 1_000_000, quote_reserve: 1_000_000, fee_bps: 30 },
+            SynthPoolSpec { address: [3u8; 32], base_reserve: 1_000_000, quote_reserve: 1_100_000, fee_bps: 30 },
+        ];
+        let mints = vec![[0xaa; 32], [0xbb; 32], [0xcc; 32]];
+        let pools = synthesize_pools(&specs, &mints);
+        let params = ReplayParams::default();
+        let report = replay_pools_to_ledger(&pools, &params).expect("recon replay");
+        let captures = captures_from_recon_report(&report, 1_000_000);
+        assert_eq!(captures.len(), report.cycle_records.len());
+        for (i, c) in captures.iter().enumerate() {
+            let expected_pnl = report.cycle_records[i].outcome.conservative.e_pnl.min(i64::MAX as i128) as i64;
+            assert_eq!(c.realized_pnl_lamports, expected_pnl);
+            let expected_won = matches!(report.cycle_records[i].decision, dl_ledger::Decision::WouldTrade);
+            assert_eq!(c.won, expected_won);
+            if i > 0 {
+                assert!(c.ts > captures[i - 1].ts);
+            }
+        }
+    }
+
+    /// `fit_from_capture` opens a `.dlf`, replays it, writes a
+    /// `CalibrationReport` to disk, and round-trips.
+    #[test]
+    fn fit_from_capture_writes_and_returns_report() {
+        use dl_recon::fixture::synthesize_small_capture;
+        use dl_recon::fixture::SynthPoolSpec;
+        use dl_recon::pipeline::ReplayParams;
+        let specs = vec![
+            SynthPoolSpec { address: [1u8; 32], base_reserve: 1_000_000, quote_reserve: 1_000_000, fee_bps: 30 },
+            SynthPoolSpec { address: [2u8; 32], base_reserve: 1_000_000, quote_reserve: 1_000_000, fee_bps: 30 },
+            SynthPoolSpec { address: [3u8; 32], base_reserve: 1_000_000, quote_reserve: 1_100_000, fee_bps: 30 },
+        ];
+        let mints = vec![[0xaa; 32], [0xbb; 32], [0xcc; 32]];
+        let capture = synthesize_small_capture(&specs, &mints);
+        let params = ReplayParams::default();
+        let out = std::env::temp_dir().join("dl-cal-fit-from-capture-test.json");
+        let _ = std::fs::remove_file(&out);
+        let report = fit_from_capture(capture.as_slice(), &params, 1_000_000, &out).expect("fit");
+        let on_disk = read_calibration_report(&out).expect("read back");
+        assert_eq!(report.result.p_detect, on_disk.result.p_detect);
+        assert_eq!(report.result.p_win, on_disk.result.p_win);
+        assert_eq!(report.result.p_land, on_disk.result.p_land);
+        assert_eq!(report.result.sample_size, on_disk.result.sample_size);
+        let on_disk_json = std::fs::read_to_string(&out).unwrap();
+        assert!(on_disk_json.contains("\"pbo\""), "pbo must serialize");
+        let _ = std::fs::remove_file(&out);
     }
 }

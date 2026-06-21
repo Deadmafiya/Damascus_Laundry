@@ -291,7 +291,7 @@ pub fn purged_walk_forward_cv(
 }
 
 /// Probability of Backtest Overfitting result.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct PboResult {
     pub n_configs: usize,
     pub logit_pbo: f64,

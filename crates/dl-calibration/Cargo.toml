@@ -6,6 +6,8 @@ license.workspace = true
 
 [dependencies]
 dl-core.workspace = true
+dl-ledger.workspace = true
+dl-recon.workspace = true
 dl-recon-overfit.workspace = true
 dl-sim.workspace = true
 serde.workspace = true
@@ -14,7 +16,7 @@ thiserror = "1"
 tracing.workspace = true
 
 [[bin]]
-name = "dl-calibrate"
+name = "calibrate"
 path = "src/bin/calibrate.rs"
 
 [[bin]]
