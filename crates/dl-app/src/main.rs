@@ -260,6 +260,7 @@ fn run_live_submit(
     use solana_sdk::hash::Hash;
     use solana_sdk::pubkey::Pubkey;
     use std::str::FromStr;
+    use std::sync::Mutex;
 
     let keyfile_path = match keyfile {
         Some(p) => p.to_string(),
@@ -419,9 +420,15 @@ fn run_live_submit(
         cap_state.spent_today(),
         cap_state.remaining()
     );
-    let _cap_state = cap_state;
+    // DAM-82: wrap the safety modules in `Arc<Mutex<>>` so the
+    // live_status writer (a side task that ticks at 1 Hz) can
+    // take a snapshot under a cheap lock without blocking the
+    // detection / submit path. The cycle path takes the same
+    // locks to charge / refund; the lock is held for
+    // microseconds.
+    let cap_state = Arc::new(Mutex::new(cap_state));
     let _rate_limit = RateLimit::new(RateLimitConfig::default());
-    let _killswitch = KillSwitch::new(KillSwitchConfig::default());
+    let killswitch = Arc::new(Mutex::new(KillSwitch::new(KillSwitchConfig::default())));
 
     // Phase 2 C3: load `calibration.json` if it exists and feed it
     // into the live eval model. Fall back to `conservative_default()`
@@ -517,9 +524,38 @@ fn run_live_submit(
     );
     eprintln!("dl-app run: ready. wire `live::submit_opportunity` to your cycle stream.");
     eprintln!("dl-app run: press Ctrl-C to exit");
-    // Block until SIGINT so the binary stays alive (operator
-    // can inspect config). Real cycle-stream wiring is Phase 2.
-    std::thread::park();
+
+    // DAM-82: spin up the live_status.json writer on a side
+    // tokio task that ticks at 1 Hz and snapshots the shared
+    // cap + kill switch. The cycle path (Phase 2) will hand
+    // its `Arc`s to the same lockable view. We block here on
+    // a dedicated runtime; SIGINT flips the watch channel
+    // and the writer does one final write before returning.
+    let live_status_path = std::env::var("DL_LIVE_STATUS_PATH")
+        .unwrap_or_else(|_| dl_app::live_status::DEFAULT_PATH.to_string());
+    let live_status_path = std::path::PathBuf::from(live_status_path);
+    let live_status_inputs = Arc::new(Mutex::new(dl_app::live_status::WriterInputs::default()));
+    let state = dl_app::live_status::SharedState {
+        cap: cap_state,
+        killswitch,
+        inputs: live_status_inputs,
+    };
+    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(1)
+        .enable_all()
+        .thread_name("dl-app-live-status")
+        .build()
+        .expect("build tokio runtime");
+    let ctrl_c_shutdown = shutdown_tx.clone();
+    runtime.spawn(async move {
+        if let Ok(()) = tokio::signal::ctrl_c().await {
+            let _ = ctrl_c_shutdown.send(true);
+        }
+    });
+    runtime.block_on(async move {
+        dl_app::live_status::run_writer_loop(live_status_path, state, shutdown_rx).await;
+    });
 }
 
 /// Pre-fund the vault PDA stub (kept for backwards compat
