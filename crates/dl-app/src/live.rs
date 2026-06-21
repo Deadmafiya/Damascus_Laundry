@@ -549,117 +549,33 @@ pub fn eval_params_from_calibration(
 /// `dl-app run --feed capture <path>` to drive off-line replay
 /// against the same code path the live WebSocket feed uses.
 ///
-/// This is the production counterpart of the assertion in
-/// `crates/dl-state/tests/dam62_orca_whirlpool_3leg.rs` — the test
-/// proves the wiring, this function ships it. Without the Whirlpool
-/// vault subscription in `dl_feed::whirlpool` the pools decode but
-/// reserves stay 0 and no Orca-leg cycles are detected.
-pub fn cycles_from_capture(path: &Path) -> Result<Vec<Cycle>, String> {
-    use dl_core::feed::FeedEvent;
-    use dl_feed::capture::CapturedFeed;
-    use dl_state::decoder::{
-        assemble_pool, assemble_whirlpool_pool, assemble_whirlpool_real_pool, decode_amm_info,
-        decode_spl_token_account, decode_whirlpool, decode_whirlpool_real, AmmInfo, SplTokenAccount,
-    };
-    use dl_stream::detector::StreamingDetector;
-    use std::collections::{HashMap, HashSet};
-    use std::fs::File;
-
-    let file = File::open(path).map_err(|e| format!("open {}: {e}", path.display()))?;
-    let mut feed = CapturedFeed::open(file)
-        .map_err(|e| format!("CapturedFeed::open: {e}"))?;
-
-    let mut raydium: HashMap<String, dl_state::decoder::Pool> = HashMap::new();
-    let mut orca: HashMap<String, dl_state::decoder::Pool> = HashMap::new();
-    let mut meteora: HashMap<String, dl_state::decoder::Pool> = HashMap::new();
-    let mut tokens: HashMap<String, SplTokenAccount> = HashMap::new();
-    let mut vaults: HashSet<String> = HashSet::new();
-    let mut pool_vaults: HashMap<String, (String, String)> = HashMap::new();
-    let mut detector = StreamingDetector::new();
-    let mut cycles: Vec<Cycle> = Vec::new();
-
-    while let Some(ev) = feed
-        .next_event()
-        .map_err(|e| format!("feed next: {e}"))?
-    {
-        match ev {
-            FeedEvent::PoolSnapshot(snap) => {
-                let amm: AmmInfo = serde_json::from_value(snap.amm.clone())
-                    .map_err(|e| format!("decode AmmInfo: {e}"))?;
-                let pool = assemble_pool(&amm)
-                    .map_err(|e| format!("assemble_pool: {e}"))?;
-                raydium.insert(pool.id.clone(), pool);
-            }
-            FeedEvent::WhirlpoolSnapshot(snap) => {
-                let wp: dl_state::decoder::Whirlpool = serde_json::from_value(snap.whirlpool.clone())
-                    .map_err(|e| format!("decode Whirlpool: {e}"))?;
-                let pool = assemble_whirlpool_pool(&wp)
-                    .map_err(|e| format!("assemble_whirlpool_pool: {e}"))?;
-                orca.insert(pool.id.clone(), pool.clone());
-                vaults.insert(pool.token_vault_x.clone());
-                vaults.insert(pool.token_vault_y.clone());
-                pool_vaults.insert(pool.id.clone(), (pool.token_vault_x, pool.token_vault_y));
-            }
-            FeedEvent::WhirlpoolRealSnapshot(snap) => {
-                let wp = decode_whirlpool_real(&snap.bytes)
-                    .map_err(|e| format!("decode_whirlpool_real: {e}"))?;
-                let pool = assemble_whirlpool_real_pool(&wp)
-                    .map_err(|e| format!("assemble_whirlpool_real_pool: {e}"))?;
-                orca.insert(pool.id.clone(), pool.clone());
-                vaults.insert(pool.token_vault_x.clone());
-                vaults.insert(pool.token_vault_y.clone());
-                pool_vaults.insert(pool.id.clone(), (pool.token_vault_x, pool.token_vault_y));
-            }
-            FeedEvent::SplTokenUpdate(snap) => {
-                let acct: SplTokenAccount = serde_json::from_value(snap.account.clone())
-                    .map_err(|e| format!("decode SplTokenAccount: {e}"))?;
-                tokens.insert(snap.pubkey.clone(), acct);
-            }
-            FeedEvent::AccountUpdate(snap) => {
-                if snap.owner == "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-                    && snap.data.len() >= 72
-                {
-                    if let Ok(amt) = decode_spl_token_account(&snap.data) {
-                        tokens.insert(snap.pubkey.clone(), amt);
-                    }
-                }
-            }
-            _ => {}
-        }
-
-        // Wire Whirlpool vault amounts into the Orca pool before
-        // running the detector. This is the part DAM-62 P2 ships.
-        for (pool_id, (vx, vy)) in pool_vaults.iter() {
-            let (mut ra, mut rb) = (0u64, 0u64);
-            if let Some(a) = tokens.get(vx) {
-                ra = a.amount;
-            }
-            if let Some(b) = tokens.get(vy) {
-                rb = b.amount;
-            }
-            if let Some(p) = orca.get_mut(pool_id) {
-                p.reserve_a = ra;
-                p.reserve_b = rb;
-            }
-        }
-
-        let _ = build_merged_events(&raydium, &orca, &meteora, &tokens);
-        let _ = assemble_pool;
-        let _ = assemble_whirlpool_pool;
-        let _ = decode_amm_info;
-        let _ = decode_whirlpool;
-    }
-
-    Ok(cycles)
-}
-
-fn build_merged_events(
-    _raydium: &HashMap<String, dl_state::decoder::Pool>,
-    _orca: &HashMap<String, dl_state::decoder::Pool>,
-    _meteora: &HashMap<String, dl_state::decoder::Pool>,
-    _tokens: &HashMap<String, SplTokenAccount>,
-) -> Vec<()> {
-    Vec::new()
+/// ## Status
+///
+/// **Stub.** The DAM-62 commit `3f04ee` added this function with
+/// a body that referenced `FeedEvent::PoolSnapshot`,
+/// `FeedEvent::WhirlpoolSnapshot`, `FeedEvent::WhirlpoolRealSnapshot`,
+/// `FeedEvent::SplTokenUpdate`, `dl_state::decoder::Pool`,
+/// `assemble_pool`, `assemble_whirlpool_pool`,
+/// `assemble_whirlpool_real_pool`, `decode_amm_info`,
+/// `decode_spl_token_account`, `decode_whirlpool`, and
+/// `decode_whirlpool_real` — none of which exist on disk at HEAD
+/// (the build fails to compile the original body with 26 errors).
+/// The DAM-62 acceptance test
+/// (`dl-state/tests/dam62_orca_whirlpool_3leg.rs`) passes because
+/// it constructs types locally; the production path is unwired.
+///
+/// This stub preserves the public signature
+/// (`Result<Vec<Cycle>, String>`) and returns an empty vector so
+/// the build compiles. The function is **not a DAM-82 concern**;
+/// a follow-up DAM-98 / DAM-44c ticket will wire the body to the
+/// real `dl-feed::capture` JSONL format, the `dl_state::decoder`
+/// API, and the `dl_core::feed::FeedEvent` snapshot variants once
+/// those types land. Until then, callers that need cycles from a
+/// capture should use the local helpers in the DAM-62 / DAM-63
+/// test crates.
+pub fn cycles_from_capture(_path: &Path) -> Result<Vec<Cycle>, String> {
+    // Stub body — see module docs.
+    Ok(Vec::new())
 }
 
 #[cfg(test)]
