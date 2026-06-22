@@ -27,6 +27,7 @@ pub mod fixture;
 pub mod invariants;
 pub mod onchain;
 pub mod pipeline;
+pub mod reconcile;
 
 pub use error::ReconError;
 pub use onchain::{AnchorDataset, AnchorDivergence, AnchorEntry, AnchorName, OnchainError};

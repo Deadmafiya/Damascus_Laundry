@@ -12,6 +12,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::pool::{Pool, PoolExtras};
 use crate::Pubkey;
 
 /// Meteora DLMM program ID on Solana mainnet.
@@ -174,6 +175,44 @@ pub fn encode_lb_pair(p: &LbPair) -> Vec<u8> {
         out.extend_from_slice(&p.bin_price[i].to_le_bytes());
     }
     out
+}
+
+/// Assemble a normalized [`Pool`] from a decoded [`LbPair`].
+///
+/// For v1.0, the active bin (the bin at `LbPair.active_id`) is the
+/// only bin tracked. The fill math reads `extras` (active bin
+/// reserves + price) instead of `base_reserve` / `quote_reserve`.
+/// Multi-bin walks are a v1.1 follow-up.
+pub fn assemble_lb_pair_pool(
+    pool_address: Pubkey,
+    p: &LbPair,
+    base_vault_amount: u64,
+    quote_vault_amount: u64,
+    last_update_slot: u64,
+) -> Pool {
+    let active_idx = (p.active_id - (p.active_id - LbPair::BIN_WINDOW as i32 / 2)).max(0) as usize;
+    let active_idx = active_idx.min(p.bin_amount_x.len().saturating_sub(1));
+    let active_amount_x = p.bin_amount_x.get(active_idx).copied().unwrap_or(0);
+    let active_amount_y = p.bin_amount_y.get(active_idx).copied().unwrap_or(0);
+    let active_price_scaled = p.bin_price.get(active_idx).copied().unwrap_or(0);
+    Pool {
+        address: pool_address,
+        kind: crate::pool::AmmKind::MeteoraDlmm,
+        base_mint: p.token_mint_x,
+        quote_mint: p.token_mint_y,
+        base_decimals: 9,
+        quote_decimals: 6,
+        base_reserve: base_vault_amount,
+        quote_reserve: quote_vault_amount,
+        fee_bps: p.bin_step,
+        last_update_slot,
+        extras: PoolExtras::Dlmm {
+            bin_step: p.bin_step,
+            active_amount_x,
+            active_amount_y,
+            active_price_scaled,
+        },
+    }
 }
 
 /// Errors from `decode_lb_pair`. Integer-only.

@@ -1,0 +1,22 @@
+[package]
+name = "dl-oracle"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+dl-core.workspace = true
+solana-sdk = { workspace = true, features = ["full"] }
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror = "1"
+tracing.workspace = true
+bs58.workspace = true
+
+[dev-dependencies]
+solana-sdk = { version = "2", features = ["full"] }
+
+[[bin]]
+name = "dl-pyth-fetch"
+path = "src/bin/pyth_fetch.rs"

@@ -21,4 +21,16 @@ pub enum ExecutorError {
 
     #[error("Signer error: {0}")]
     Signer(String),
+
+    #[error("simulateTransaction failed: {0}")]
+    SimulateFailed(String),
+
+    #[error("simulateTransaction reported negative net PnL: {reported_pnl} lamports")]
+    SimulateNegativeNet { reported_pnl: i64 },
+
+    #[error("kill switch tripped: {0}")]
+    KillSwitchTripped(String),
+
+    #[error("landing poll error: {0}")]
+    LandingPoll(String),
 }

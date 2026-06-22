@@ -4,11 +4,6 @@ version.workspace = true
 edition = "2021"
 license.workspace = true
 
-[[bin]]
-name = "dl-app"
-path = "src/main.rs"
-edition = "2021"
-
 [dependencies]
 dl-core.workspace = true
 dl-feed = { workspace = true, features = ["ws"] }
@@ -22,16 +17,32 @@ dl-executor.workspace = true
 dl-stream.workspace = true
 dl-paper.workspace = true
 dl-recon-overfit.workspace = true
+dl-assert-sdk.workspace = true
+dl-oracle.workspace = true
+dl-calibration.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror = "1"
 chrono.workspace = true
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "signal"] }
 bs58 = "0.5"
 toml = "0.8"
+bincode = "1"
+base64 = "0.22"
+solana-sdk = { workspace = true, features = ["full"] }
+solana-client.workspace = true
+reqwest.workspace = true
 
 [lib]
 name = "dl_app"
 path = "src/lib.rs"
+
+[[bin]]
+name = "dl-app"
+path = "src/main.rs"
+
+[[bin]]
+name = "dl-latency-probe"
+path = "src/bin/dl-latency-probe.rs"

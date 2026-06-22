@@ -495,6 +495,7 @@ mod tests {
             quote_reserve: quote,
             fee_bps: 30,
             last_update_slot: 1,
+            ..Default::default()
         }
     }
 
@@ -562,5 +563,23 @@ mod tests {
         // builder + detector decide), but the report should not panic
         // and should be deterministic.
         let _ = report.len();
+    }
+
+    /// DAM-44c: the recon harness invokes `prune_stale_edges`
+    /// before cycle detection. With the cold-start default
+    /// (env unset), the prune is a no-op and the report is
+    /// deterministic. This test pins that the recon path with
+    /// the prune wired in returns identical hashes on repeated
+    /// runs (no spurious divergence from the prune step).
+    #[test]
+    fn recon_with_prune_wired_is_deterministic() {
+        let pools = vec![
+            make_pool([1u8; 32], 1_000_000, 1_000_000),
+            make_pool([2u8; 32], 1_000_000, 1_100_000),
+        ];
+        let params = ReplayParams::default();
+        let a = replay_pools_to_ledger(&pools, &params).unwrap();
+        let b = replay_pools_to_ledger(&pools, &params).unwrap();
+        assert_eq!(a.report_hash, b.report_hash);
     }
 }

@@ -44,10 +44,74 @@
 use std::fmt::Write;
 use std::sync::Arc;
 
+use dl_executor::metrics::{LandingLatencySnapshot, LiveMetrics};
+
 use crate::metrics::{MetricsRegistry, MetricsSnapshot};
 
 /// Prometheus exposition-format content type.
 pub const CONTENT_TYPE: &str = "text/plain; version=0.0.4; charset=utf-8";
+
+/// Render the dl-detect graph-layer stale-edge counter as a
+/// Prometheus counter line. DAM-44c: the graph-layer prune
+/// (`dl_detect::staleness::prune_stale_edges`) bumps
+/// `dl_detect::staleness::STALE_EDGES_PRUNED_TOTAL`; the
+/// dashboard reads it through this helper so the `/metrics`
+/// body surfaces the count alongside the feed-layer
+/// `feed_stale_pool_count`.
+///
+/// Read at `render` time (Prometheus pull model); no atomic
+/// increment / decrement churn is needed for the dashboard
+/// read path. Integer-only (the counter is `AtomicU64`).
+pub fn render_dl_state_metrics() -> String {
+    let v = dl_detect::staleness::STALE_EDGES_PRUNED_TOTAL
+        .load(std::sync::atomic::Ordering::Relaxed);
+    let mut out = String::new();
+    let _ = writeln!(
+        out,
+        "# HELP dl_state_stale_edges_pruned_total Edges dropped from the price graph by DAM-44c graph-level staleness prune"
+    );
+    let _ = writeln!(out, "# TYPE dl_state_stale_edges_pruned_total counter");
+    let _ = writeln!(out, "dl_state_stale_edges_pruned_total {v}");
+    out
+}
+
+/// Render a `LiveMetrics` snapshot (Phase 1d extension) as
+/// Prometheus summary lines for the landing-latency histogram.
+/// Returns the substring to append to a `/metrics` body.
+///
+/// This is intentionally separate from `render_snapshot` because
+/// `LiveMetrics` (in `dl-executor`) and `MetricsRegistry` (in
+/// `dl-app`) are two independent metric systems; merging them is
+/// future work (see plan §"Open questions").
+pub fn render_live_metrics_prom(live: &LiveMetrics) -> String {
+    let snap = live.landing_latency_snapshot();
+    render_landing_latency_summary("dl_submission_to_landing_ms", &snap)
+}
+
+/// Render a [`LandingLatencySnapshot`] as Prometheus summary
+/// quantile lines. The name is the metric name (e.g.
+/// `dl_submission_to_landing_ms`).
+pub fn render_landing_latency_summary(name: &str, snap: &LandingLatencySnapshot) -> String {
+    let mut out = String::new();
+    let _ = writeln!(
+        out,
+        "# HELP {name} Time from Jito submit call to LandingResult::Landed observation (milliseconds)"
+    );
+    let _ = writeln!(out, "# TYPE {name} summary");
+    if snap.count == 0 {
+        // Empty histogram: emit zero-valued quantile lines.
+        let _ = writeln!(out, "{name}{{quantile=\"0.5\"}} 0");
+        let _ = writeln!(out, "{name}{{quantile=\"0.95\"}} 0");
+        let _ = writeln!(out, "{name}_count 0");
+        let _ = writeln!(out, "{name}_sum 0");
+        return out;
+    }
+    let _ = writeln!(out, "{name}{{quantile=\"0.5\"}} {}", snap.p50_ms);
+    let _ = writeln!(out, "{name}{{quantile=\"0.95\"}} {}", snap.p95_ms);
+    let _ = writeln!(out, "{name}_count {}", snap.count);
+    let _ = writeln!(out, "{name}_sum {}", snap.sum_ms);
+    out
+}
 
 /// A `MetricsSink` impl that renders the registry's snapshot
 /// to Prometheus text format on demand.
@@ -238,5 +302,52 @@ mod tests {
         let trait_obj: Arc<dyn MetricsSink> = s.clone();
         trait_obj.counter_published("test", 1);
         trait_obj.flush();
+    }
+
+    #[test]
+    fn render_live_metrics_prom_handles_empty() {
+        let live = LiveMetrics::new();
+        let body = render_live_metrics_prom(&live);
+        assert!(body.contains("# HELP dl_submission_to_landing_ms"));
+        assert!(body.contains("# TYPE dl_submission_to_landing_ms summary"));
+        assert!(body.contains("dl_submission_to_landing_ms_count 0"));
+        assert!(body.contains("dl_submission_to_landing_ms_sum 0"));
+    }
+
+    #[test]
+    fn render_live_metrics_prom_handles_populated() {
+        let live = LiveMetrics::new();
+        for i in 1..=100 {
+            live.record_landing_latency_ms(i * 5); // 5, 10, ..., 500 ms
+        }
+        let body = render_live_metrics_prom(&live);
+        assert!(body.contains("dl_submission_to_landing_ms_count 100"));
+        assert!(body.contains("dl_submission_to_landing_ms_sum 25250")); // 5+10+...+500
+        assert!(body.contains("dl_submission_to_landing_ms{quantile=\"0.5\"}"));
+        assert!(body.contains("dl_submission_to_landing_ms{quantile=\"0.95\"}"));
+        // p50 of [5..=500 step 5]: pos = 0.5 * 99 = 49.5
+        // interpolated between sorted[49]=250 and sorted[50]=255,
+        // result = 250 + 0.5 * 5 = 252.5 → 252 (u64 cast).
+        assert!(body.contains("dl_submission_to_landing_ms{quantile=\"0.5\"} 252"));
+    }
+
+    /// DAM-44c: `render_dl_state_metrics` emits the
+    /// `dl_state_stale_edges_pruned_total` counter line by
+    /// reading the `dl_detect::staleness::STALE_EDGES_PRUNED_TOTAL`
+    /// atomic. The render is a pure function of the counter's
+    /// current value; bump the counter, re-render, observe the
+    /// new value in the body.
+    #[test]
+    fn render_dl_state_metrics_emits_counter() {
+        use std::sync::atomic::Ordering;
+        let c = &dl_detect::staleness::STALE_EDGES_PRUNED_TOTAL;
+        let pre = c.load(Ordering::Relaxed);
+        c.store(17, Ordering::Relaxed);
+        let body = render_dl_state_metrics();
+        assert!(body.contains("# HELP dl_state_stale_edges_pruned_total"), "missing HELP line: {body}");
+        assert!(body.contains("# TYPE dl_state_stale_edges_pruned_total counter"), "missing TYPE line: {body}");
+        assert!(body.contains("dl_state_stale_edges_pruned_total 17"), "missing counter line: {body}");
+        // Restore so we don't leak state into other tests.
+        c.store(pre, Ordering::Relaxed);
     }
 }

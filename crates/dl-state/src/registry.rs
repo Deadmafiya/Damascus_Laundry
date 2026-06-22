@@ -60,6 +60,7 @@ mod tests {
             quote_reserve: 15_000_000_000, // 15,000 USDC
             fee_bps: 25,
             last_update_slot: 1,
+            ..Default::default()
         }
     }
 

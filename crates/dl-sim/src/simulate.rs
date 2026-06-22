@@ -1,5 +1,5 @@
 //! Multi-leg forward fill: simulate a `Cycle` through the live
-//! `PoolRegistry`, applying the constant-product fill math leg-by-leg.
+//! `PoolRegistry`, applying the AMM-kind-specific fill math leg-by-leg.
 //!
 //! This is the boundary between detection (Phase 3) and sizing (Phase 4/5).
 //! The detector flags a *cycle*; the sim answers "*what would the round-trip
@@ -9,14 +9,17 @@
 //!
 //! For each `Leg` in `cycle.legs`:
 //! 1. Look up the `Pool` in the registry (`Err(PoolNotFound)` if missing).
-//! 2. Determine `(reserve_in, reserve_out)` from the leg's `Direction`.
-//! 3. Call `fill_constant_product(...)` to get the leg's output.
-//! 4. Compute the *effective* amount that hit the pool (post-fee),
+//! 2. Dispatch on `pool.kind` to the AMM-specific fill function:
+//!    - **Raydium AMM v4**: standard `fill_constant_product`.
+//!    - **Orca Whirlpool**: `fill_orca_single_tick(sqrt_price, ...)`.
+//!    - **Meteora DLMM**: `fill_meteora_single_bin(...)` against the
+//!      active bin's reserves and price.
+//! 3. Compute the *effective* amount that hit the pool (post-fee),
 //!    `dx_eff = amount_in * (10_000 - fee_bps) / 10_000`.
-//! 5. Compute the *new* reserves for observability:
+//! 4. Compute the *new* reserves for observability:
 //!    `(reserve_in + dx_eff, reserve_out - amount_out)`, saturated to
 //!    `u64::MAX` (defensive — realistic reserves never approach that).
-//! 6. Feed `amount_out` into the next leg as its `amount_in`.
+//! 5. Feed `amount_out` into the next leg as its `amount_in`.
 //!
 //! ## Determinism
 //!
@@ -25,10 +28,15 @@
 
 use dl_core::fixed::mul_div_floor;
 use dl_state::cycle::{Cycle, Direction, Leg};
-use dl_state::{Pool, PoolRegistry, Pubkey};
+use dl_state::pool::{PoolExtras, Pubkey};
+use dl_state::PoolRegistry;
 
 use crate::error::SimError;
 use crate::fill::fill_constant_product;
+use crate::fill_meteora::{
+    fill_meteora_single_bin, MeteoraBin, SwapDirection as MeteoraSwapDirection,
+};
+use crate::fill_orca::fill_orca_single_tick;
 
 /// Defensive cap on the number of legs a single cycle can have. Real
 /// arb cycles are 2-4 legs; anything beyond is either misconfigured or
@@ -114,35 +122,80 @@ pub fn simulate_cycle(
 }
 
 /// Fill a single leg. The output's `amount_out` becomes the next
-/// leg's `amount_in`.
+/// leg's `amount_in`. Dispatches on `pool.extras` to use the
+/// AMM-kind-specific fill math (Raydium constant-product vs.
+/// Whirlpool single-tick vs. DLMM single-bin).
 fn simulate_one_leg(
     leg: &Leg,
     registry: &PoolRegistry,
     amount_in: u128,
 ) -> Result<LegFill, SimError> {
-    let pool: &Pool = registry
+    let pool = registry
         .get(&leg.pool.0)
         .ok_or(SimError::PoolNotFound(leg.pool))?;
-    let (reserve_in, reserve_out) = match leg.direction {
-        Direction::BaseToQuote => (pool.base_reserve, pool.quote_reserve),
-        Direction::QuoteToBase => (pool.quote_reserve, pool.base_reserve),
-    };
-    let amount_out = fill_constant_product(
-        reserve_in as u128,
-        reserve_out as u128,
-        pool.fee_bps,
-        amount_in,
-    )?;
-    // dx_eff = amount_in * (10_000 - fee_bps) / 10_000 — the post-fee
-    // amount that actually hit the pool. This is what the next-leg
-    // reserves use when the *same* pool is revisited (not the case in
-    // v1.0 — cycles are simple walks — but the design supports it).
+    // Compute the post-fee effective input for the reserve_after math.
+    // (The actual fee is also applied inside the per-AMM fill
+    // function; this is a duplicate accounting for display only.)
     let fee_num: u128 = FEE_DENOM_BPS - pool.fee_bps as u128;
     let dx_eff = mul_div_floor(amount_in, fee_num, FEE_DENOM_BPS)?;
+
+    let (amount_out, reserve_in_for_log, reserve_out_for_log) = match &pool.extras {
+        PoolExtras::Raydium => {
+            let (ri, ro) = match leg.direction {
+                Direction::BaseToQuote => (pool.base_reserve, pool.quote_reserve),
+                Direction::QuoteToBase => (pool.quote_reserve, pool.base_reserve),
+            };
+            let amount_out =
+                fill_constant_product(ri as u128, ro as u128, pool.fee_bps, amount_in)?;
+            (amount_out, ri, ro)
+        }
+        PoolExtras::Whirlpool { sqrt_price } => {
+            // Single-tick Whirlpool fill: sqrt_price Q64.64 derives the
+            // virtual reserves. The constant-product fill formula
+            // operates on the derived reserves, not on the vault
+            // amounts (which are kept on `pool.base_reserve` /
+            // `pool.quote_reserve` for display only).
+            let amount_out = fill_orca_single_tick(*sqrt_price, amount_in, pool.fee_bps)?;
+            // For `reserves_after` reporting, use the actual vault
+            // amounts; the virtual reserves are not materialised here.
+            let (ri, ro) = match leg.direction {
+                Direction::BaseToQuote => (pool.base_reserve, pool.quote_reserve),
+                Direction::QuoteToBase => (pool.quote_reserve, pool.base_reserve),
+            };
+            (amount_out, ri, ro)
+        }
+        PoolExtras::Dlmm {
+            bin_step: _,
+            active_amount_x,
+            active_amount_y,
+            active_price_scaled,
+        } => {
+            // Single-bin DLMM fill against the active bin.
+            let direction = match leg.direction {
+                Direction::BaseToQuote => MeteoraSwapDirection::XForY,
+                Direction::QuoteToBase => MeteoraSwapDirection::YForX,
+            };
+            let bin = MeteoraBin {
+                amount_x: *active_amount_x,
+                amount_y: *active_amount_y,
+                price: *active_price_scaled,
+            };
+            let amount_out_u64 =
+                fill_meteora_single_bin(&bin, direction, amount_in as u64, pool.fee_bps)?;
+            let amount_out = amount_out_u64 as u128;
+            let (ri, ro) = match leg.direction {
+                Direction::BaseToQuote => (*active_amount_x, *active_amount_y),
+                Direction::QuoteToBase => (*active_amount_y, *active_amount_x),
+            };
+            (amount_out, ri, ro)
+        }
+    };
+
     // New reserves, saturated at u64::MAX. Realistic reserves never
     // approach that, but the saturate is defensive.
-    let new_reserve_in = reserve_in.saturating_add(dx_eff.min(u64::MAX as u128) as u64);
-    let new_reserve_out = reserve_out.saturating_sub(amount_out.min(u64::MAX as u128) as u64);
+    let new_reserve_in = reserve_in_for_log.saturating_add(dx_eff.min(u64::MAX as u128) as u64);
+    let new_reserve_out =
+        reserve_out_for_log.saturating_sub(amount_out.min(u64::MAX as u128) as u64);
     Ok(LegFill {
         pool: leg.pool,
         direction: leg.direction,
@@ -169,6 +222,7 @@ mod tests {
             quote_reserve: quote_res,
             fee_bps,
             last_update_slot: 1,
+            ..Default::default()
         }
     }
 
@@ -317,5 +371,92 @@ mod tests {
         let cycle = build_cycle(legs);
         let err = simulate_cycle(&cycle, &reg, 1_000).unwrap_err();
         assert!(matches!(err, SimError::CycleTooLong(n) if n == MAX_CYCLE_LEGS + 1));
+    }
+
+    /// Orca Whirlpool pool dispatches to `fill_orca_single_tick`. The
+    /// sqrt_price (Q64.64) drives the constant-product reserves; the
+    /// actual vault amounts on `pool.base_reserve` / `pool.quote_reserve`
+    /// are NOT used for the fill math (they're display only).
+    #[test]
+    fn simulate_one_leg_whirlpool_dispatches_to_tick_math() {
+        use dl_state::pool::{AmmKind, Pool, PoolExtras, Pubkey as DlPubkey};
+        let mut reg = PoolRegistry::new();
+        let pool = Pool {
+            address: DlPubkey([0xA1; 32]),
+            kind: AmmKind::OrcaWhirlpool,
+            base_mint: DlPubkey([0x01; 32]),
+            quote_mint: DlPubkey([0x02; 32]),
+            base_decimals: 9,
+            quote_decimals: 6,
+            // Vault amounts are large but should NOT affect the fill —
+            // the dispatch should use sqrt_price exclusively.
+            base_reserve: 1_000_000_000_000_000,
+            quote_reserve: 1_000_000_000_000_000,
+            fee_bps: 30,
+            last_update_slot: 1,
+            extras: PoolExtras::Whirlpool {
+                sqrt_price: 1u128 << 64, // Q64.64 = price 1.0
+            },
+        };
+        reg.insert(pool.clone());
+        let cycle = build_cycle(vec![Leg {
+            pool: pool.address,
+            direction: Direction::BaseToQuote,
+            weight: 0,
+        }]);
+        let fill = simulate_cycle(&cycle, &reg, 1_000_000).unwrap();
+        // sqrt_price = 2^64 → price = 1.0 → single-tick constant-product
+        // dy = y * dx / (x + dx) = 2^64 * 1e6 / (2^64 + 1e6).
+        // The output should be ≈ 1e6 * (1 - fee) — input 1e6 with
+        // ~30 bps fee yields output ≈ 997_000 (within ±1% per
+        // fill_orca_single_tick tolerance).
+        assert!(
+            fill.final_output > 990_000 && fill.final_output < 1_000_000,
+            "out = {}",
+            fill.final_output
+        );
+    }
+
+    /// Meteora DLMM pool dispatches to `fill_meteora_single_bin`. The
+    /// active bin's reserves and price drive the fill.
+    #[test]
+    fn simulate_one_leg_dlmm_dispatches_to_bin_math() {
+        use crate::fill_meteora::SCALE_OFFSET;
+        use dl_state::pool::{AmmKind, Pool, PoolExtras, Pubkey as DlPubkey};
+        let mut reg = PoolRegistry::new();
+        let pool = Pool {
+            address: DlPubkey([0xA2; 32]),
+            kind: AmmKind::MeteoraDlmm,
+            base_mint: DlPubkey([0x01; 32]),
+            quote_mint: DlPubkey([0x02; 32]),
+            base_decimals: 9,
+            quote_decimals: 6,
+            base_reserve: 999_999_999, // Should NOT be used
+            quote_reserve: 999_999_999,
+            fee_bps: 30,
+            last_update_slot: 1,
+            extras: PoolExtras::Dlmm {
+                bin_step: 100,
+                active_amount_x: 1_000,
+                active_amount_y: 2_000,
+                active_price_scaled: 2 * SCALE_OFFSET, // price 2.0
+            },
+        };
+        reg.insert(pool.clone());
+        let cycle = build_cycle(vec![Leg {
+            pool: pool.address,
+            direction: Direction::BaseToQuote,
+            weight: 0,
+        }]);
+        let fill = simulate_cycle(&cycle, &reg, 100).unwrap();
+        // 100 X in, price = 2.0, 30 bps fee.
+        // After-fee: 100 * 0.997 = 99.7 X effective.
+        // Single-bin fill: 99.7 * 2000 / (1000 + 99.7) ≈ 181.27 Y.
+        // Allow ±3 Y tolerance.
+        assert!(
+            fill.final_output >= 178 && fill.final_output <= 184,
+            "out = {}",
+            fill.final_output
+        );
     }
 }

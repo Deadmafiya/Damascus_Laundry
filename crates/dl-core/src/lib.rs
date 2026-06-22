@@ -17,7 +17,7 @@ pub mod rng;
 
 pub use amount::Amount;
 pub use clock::{Clock, MockClock, Slot, SystemClock};
-pub use feed::{Feed, FeedEvent, ScriptedFeed};
+pub use feed::{amm_tag, Feed, FeedEvent, PoolExtrasWire, ScriptedFeed};
 pub use fixed::MathError;
 pub use prob::{bps_to_prob, mul_prob, prob_ge, RngExt, PROB_SCALE_1E18};
 pub use rng::{Rng, SeededRng};

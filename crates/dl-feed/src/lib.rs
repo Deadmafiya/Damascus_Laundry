@@ -6,6 +6,12 @@
 pub mod capture;
 pub mod capturing;
 pub mod error;
+pub mod metrics_hook;
+pub mod reconnect;
+pub mod registry;
+pub mod staleness;
+#[cfg(feature = "whirlpool")]
+pub mod whirlpool;
 #[cfg(feature = "ws")]
 pub mod ws_feed;
 

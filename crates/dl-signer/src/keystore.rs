@@ -213,18 +213,15 @@ impl KeyStore {
         &self.secret
     }
 
-    /// Return the public key bytes. Exposed for diagnostic
+    /// Return the public key bytes (the Ed25519 verifying key
+    /// derived from the secret). Exposed for diagnostic
     /// purposes (e.g. the dl-signer CLI's `verify` and
-    /// `drain-to` commands need to print the pubkey).
+    /// `drain-to` commands need to print the pubkey), and as
+    /// the canonical pubkey that `solana-sdk::Keypair::try_from`
+    /// would derive from the same secret.
     pub fn public_key_for_print(&self) -> [u8; 32] {
-        // The pubkey is derived from the secret key in
-        // production via solana-sdk::signer::keypair::Keypair.
-        // For 08-03 we don't have solana-sdk in the dl-signer
-        // crate, so we expose the secret-key bytes as a
-        // placeholder. The operator uses the Solana CLI for
-        // the actual transfer, which derives the pubkey from
-        // the secret key correctly.
-        self.secret
+        let signing_key = ed25519_dalek::SigningKey::from_bytes(&self.secret);
+        signing_key.verifying_key().to_bytes()
     }
 }
 

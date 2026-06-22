@@ -6,6 +6,7 @@ publish = false
 description = "Phase 6 / plan 02 overfitting-defense metrics. The ONLY f64 module in the workspace; isolated in its own crate so the dl-recon float-free CI guard is not weakened."
 
 [dependencies]
+serde = { version = "1", features = ["derive"] }
 libm = "0.2"
 
 [dev-dependencies]

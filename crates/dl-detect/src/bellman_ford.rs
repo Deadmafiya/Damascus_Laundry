@@ -224,6 +224,7 @@ mod tests {
             quote_reserve: qr,
             fee_bps,
             last_update_slot: 1,
+            ..Default::default()
         }
     }
 

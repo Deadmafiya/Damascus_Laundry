@@ -54,6 +54,13 @@ pub enum Direction {
 /// computed by [`compute_profit_bps`] from `weight_sum`.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Cycle {
+    /// Monotonic sequence number assigned at detection time.
+    /// `0` means "no seq assigned yet" (the live pipeline assigns
+    /// one via `LiveMetrics::next_cycle_seq`). Used by the
+    /// calibration pipeline (`dl-calibration::reconcile`) to
+    /// aggregate captures and by `dl-niches::classify` to derive
+    /// the niche class. Stable across the cycle's lifetime.
+    pub seq: u64,
     pub legs: Vec<Leg>,
     /// Sum of `legs[*].weight`, 1e-18 scale. Negative == profitable.
     pub weight_sum: i64,
@@ -65,10 +72,12 @@ pub struct Cycle {
 impl Cycle {
     /// Build a `Cycle` from a list of legs. `weight_sum` is computed
     /// from the leg weights; `expected_profit_bps` is left at 0 (use
-    /// [`Cycle::compute_expected_profit_bps`] to fill it).
+    /// [`Cycle::compute_expected_profit_bps`] to fill it). `seq` is
+    /// 0; the live pipeline overwrites it before submit.
     pub fn new(legs: Vec<Leg>) -> Self {
         let weight_sum = legs.iter().map(|l| l.weight).sum();
         Self {
+            seq: 0,
             legs,
             weight_sum,
             expected_profit_bps: 0,
