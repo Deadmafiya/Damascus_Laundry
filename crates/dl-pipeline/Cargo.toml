@@ -1,0 +1,31 @@
+[package]
+name = "dl-pipeline"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "DAM-46 — Data pipeline: ingests cycle.v1 / trade.v1 / recon_report_v1 into the local warehouse, runs daily reconciliation, and verifies idempotent re-runs. See docs/architecture/data-architecture-v1.md and docs/contracts/cycle.v1.md."
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+blake3 = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+clap = { version = "4", features = ["derive"] }
+anyhow = "1"
+walkdir = "2"
+regex = "1"
+tempfile = "3"
+hex = "0.4"
+glob = "0.3"
+
+[dev-dependencies]
+proptest.workspace = true
+serde_json = "1"
+
+# The CLI binary: `dl-pipeline ingest cycles ...`, `dl-pipeline reconcile ...`, etc.
+[[bin]]
+name = "dl-pipeline"
+path = "src/bin/dl_pipeline.rs"
