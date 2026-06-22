@@ -31,6 +31,7 @@ use dl_app::config::EngineConfig;
 use dl_app::metrics::MetricsRegistry;
 use dl_app::metrics_prom::MetricsPrometheus;
 use dl_app::recon;
+use dl_app::reconcile;
 use dl_ledger::{LedgerEntry, LedgerWriter, LEDGER_MAGIC, LEDGER_SCHEMA_VERSION};
 use dl_recon::fixture::{synthesize_pools, SynthPoolSpec};
 use dl_recon::pipeline::{replay_capture_to_ledger, ReplayParams};
@@ -64,6 +65,11 @@ fn main() {
 
     if env::args().nth(1).as_deref() == Some("recon") {
         recon::dispatch();
+        return;
+    }
+
+    if env::args().nth(1).as_deref() == Some("reconcile") {
+        reconcile::dispatch();
         return;
     }
 

@@ -15,6 +15,7 @@ pub mod metrics;
 pub mod metrics_prom;
 pub mod opportunity;
 pub mod recon;
+pub mod reconcile;
 
 /// Initialize structured logging once. Idempotent — calls after the
 /// first are no-ops.
