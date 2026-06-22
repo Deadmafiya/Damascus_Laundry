@@ -34,6 +34,90 @@ tail -f trader.log                           # raw event stream
 cat wallet.json | jq .                       # full wallet JSON
 ```
 
+## 4. Data commands (DAM-46)
+
+The `dl-pipeline` crate ingests `cycle.v1` JSONL emitted by the bot,
+runs daily reconciliation, and verifies idempotent re-runs. The
+warehouse root defaults to `data/warehouse/` (overridable with
+`--root`). All commands are idempotent — re-running on the same input
+is a no-op for already-ingested rows. The full contract lives in
+`docs/contracts/cycle.v1.md`.
+
+```bash
+# Ingest the day's cycle.v1 JSONL (one file or a directory).
+cargo run -p dl-pipeline --release -- ingest cycles /path/to/cycles.jsonl
+cargo run -p dl-pipeline --release -- ingest cycles data/cycles/   # dir of .jsonl
+
+# Ingest paper trades (stub today; real impl lands when Quant
+# publishes the trade.v1 contract).
+cargo run -p dl-pipeline --release -- ingest trades /path/to/trades.jsonl
+
+# Run daily reconciliation for a date.
+cargo run -p dl-pipeline --release -- reconcile --date 2026-06-20
+
+# Verify the day's batch is identical to the prior seal (replay +
+# blake3 checksum). Exits non-zero on mismatch.
+cargo run -p dl-pipeline --release -- verify --date 2026-06-20
+
+# Archive partitions older than 90 days to data/archive/.
+cargo run -p dl-pipeline --release -- compact --older-than-days 90
+
+# Run all commands in a per-process temp warehouse. Test mode never
+# mutates the real warehouse. Used by CI.
+cargo run -p dl-pipeline --release -- --test-mode ingest cycles tests/fixtures/cycle/v1/happy.jsonl
+```
+
+### Verification
+
+```bash
+# Fixture-based CI:
+cargo test -p dl-pipeline
+
+# Includes:
+#   tests/fixtures.rs            — happy / missing_schema / bad_legs
+#   tests/recon.rs               — daily recon join + idempotency
+#   tests/verify_idempotent.rs   — seal + verify + re-verify
+#   tests/floats.rs              — float-free CI guard
+#   tests/schema_drift.rs        — every required field is in the contract doc
+```
+
+### Warehouse layout
+
+```
+data/warehouse/
+  cycle_v1/
+    YYYY-MM-DD/
+      cycle_v1.jsonl            # append-only, one row per line
+      cycle_v1.checksum         # blake3 of the JSONL, written on seal
+  trade_v1/
+    YYYY-MM-DD/
+      trade_v1.jsonl
+  recon_report_v1/<bot_run_id>/report-<report_id>.jsonl
+  daily_recon_v1/YYYY-MM-DD.jsonl
+  dl_pipeline_rejects/<pipeline_run_id>.jsonl
+  compact/archive/YYYY/MM/cycle_v1-<date>.jsonl
+```
+
+The `dl-pipeline verify` command returns 0 on checksum match and
+non-zero on mismatch. A mismatch indicates a partition was rewritten
+after seal — investigate before re-sealing.
+
+### Backfill (DAM-46 §Backfill)
+
+```bash
+# 1) Replay the capture through the bot for the backfill date.
+dl-app run --feed capture <capture.bin> --date 2026-06-20
+
+# 2) Ingest the cycle.v1 JSONL the bot produced.
+dl-pipeline ingest cycles data/cycles/2026-06-20/
+
+# 3) Run reconciliation for the day.
+dl-pipeline reconcile --date 2026-06-20
+
+# 4) Verify the backfill matches the prior checksum (if any).
+dl-pipeline verify --date 2026-06-20
+```
+
 ## 4. Realistic PnL via ArbiNexus bridge
 
 The ArbiNexus bridge is **optional**. Run it only after `start_paper_trader.sh` is running:

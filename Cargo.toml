@@ -17,6 +17,7 @@ members = [
     "crates/dl-assert-sdk",
     "crates/dl-oracle",
     "crates/dl-calibration",
+    "crates/dl-pipeline",
 ]
 # The BPF program (dl-assert-program) is a special build target
 # (`cargo build-sbf` → bpfel-unknown-unknown). It is excluded
@@ -42,6 +43,7 @@ default-members = [
     "crates/dl-assert-sdk",
     "crates/dl-oracle",
     "crates/dl-calibration",
+    "crates/dl-pipeline",
 ]
 
 [workspace.package]
@@ -84,6 +86,7 @@ dl-assert-sdk = { path = "crates/dl-assert-sdk", version = "0.0.0" }
 dl-assert-program = { path = "crates/dl-assert-program", version = "0.0.0" }
 dl-oracle = { path = "crates/dl-oracle", version = "0.0.0" }
 dl-calibration = { path = "crates/dl-calibration", version = "0.0.0" }
+dl-pipeline = { path = "crates/dl-pipeline", version = "0.0.0" }
 
 [profile.release]
 lto = "thin"
