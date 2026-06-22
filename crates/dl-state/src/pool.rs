@@ -131,3 +131,31 @@ impl Pool {
         (self.base_reserve as u128).saturating_mul(self.quote_reserve as u128)
     }
 }
+
+impl Default for AmmKind {
+    /// Default to Raydium (constant-product). The most common case
+    /// for v1.0; lets test helpers use `..Default::default()` without
+    /// naming the kind explicitly.
+    fn default() -> Self {
+        AmmKind::RaydiumAmmV4
+    }
+}
+
+impl Default for Pool {
+    /// Default to a zero Raydium pool. Used by test fixtures that
+    /// build synthetic pools without caring about every field.
+    fn default() -> Self {
+        Self {
+            address: Pubkey::ZERO,
+            kind: AmmKind::default(),
+            base_mint: Pubkey::ZERO,
+            quote_mint: Pubkey::ZERO,
+            base_decimals: 0,
+            quote_decimals: 0,
+            base_reserve: 0,
+            quote_reserve: 0,
+            fee_bps: 0,
+            last_update_slot: 0,
+        }
+    }
+}
