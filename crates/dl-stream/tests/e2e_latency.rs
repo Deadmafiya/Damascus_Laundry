@@ -58,6 +58,7 @@ fn synth_pool() -> Pool {
         quote_reserve: 1_000_000_000,
         fee_bps: 30,
         last_update_slot: 0,
+        ..Default::default()
     }
 }
 

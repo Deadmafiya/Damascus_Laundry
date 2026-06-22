@@ -122,6 +122,7 @@ pub fn synthesize_pools(specs: &[SynthPoolSpec], mints: &[[u8; 32]]) -> Vec<Pool
             quote_reserve: spec.quote_reserve,
             fee_bps: spec.fee_bps,
             last_update_slot: 1,
+            ..Default::default()
         };
         let _ = info; // AmmInfo is built so the capture path can
                       // re-decode it; for the direct-pool path we

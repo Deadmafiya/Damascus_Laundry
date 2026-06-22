@@ -48,6 +48,8 @@ use std::str::FromStr;
 
 use thiserror::Error;
 
+use crate::cap::CapConfig;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LiveMode {
     /// Default. Any live-mode invocation is refused.

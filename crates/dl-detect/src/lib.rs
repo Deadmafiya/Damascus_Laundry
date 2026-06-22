@@ -16,6 +16,7 @@
 
 pub mod bellman_ford;
 pub mod cycle;
+pub mod staleness;
 pub mod error;
 pub mod graph;
 

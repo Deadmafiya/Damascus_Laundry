@@ -6,6 +6,69 @@
 
 use crate::clock::Slot;
 
+/// AMM family tag carried by `FeedEvent::Pool`. The integer value
+/// is stable across the wire (bincode) and across versions; do
+/// not renumber. New AMMs append; do not reorder.
+pub mod amm_tag {
+    /// Raydium AMM v4 — constant-product.
+    pub const RAYDIUM_AMM_V4: u8 = 0;
+    /// Orca Whirlpool — concentrated-liquidity.
+    pub const ORCA_WHIRLPOOL: u8 = 1;
+    /// Meteora DLMM — bin-based liquidity.
+    pub const METEORA_DLMM: u8 = 2;
+}
+
+/// AMM-kind-specific extras for `FeedEvent::Pool`. Integer-only
+/// (Q64.64 sqrt_price for Whirlpool; per-bin reserves + per-bin
+/// `SCALE_OFFSET`-scaled price for DLMM). The fill math consumes
+/// these directly without any `f32` / `f64` step. The
+/// `dl-feed` value-path no-floats invariant still holds: every
+/// field is `u64` or `u128`.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum PoolExtrasWire {
+    /// Constant-product (Raydium AMM v4). No extras; the fill
+    /// math reads `base_reserve` / `quote_reserve` directly.
+    Raydium,
+    /// Concentrated liquidity (Orca Whirlpool). `sqrt_price` is
+    /// Q64.64 — the tick-anchored price. `base_reserve` /
+    /// `quote_reserve` are NOT used by the fill math; they
+    /// hold the latest known SPL-token vault amounts for
+    /// display only.
+    Whirlpool {
+        /// Tick-anchored price in Q64.64 fixed point.
+        sqrt_price: u128,
+    },
+    /// Bin-based (Meteora DLMM). Carries the active bin's
+    /// per-bin reserves and per-bin price. The full 65-bin
+    /// window around `active_id` is preserved so the fill math
+    /// can walk the bin array on replay without any
+    /// collapse-to-single-price step. The active bin is at
+    /// `bin_price[0]`, index `i` is bin `active_id + i` (as i32).
+    Dlmm {
+        /// Per-bin price step in basis points (e.g. 100 = 1%).
+        bin_step: u16,
+        /// Active bin ID; index 0 of the bin arrays is this bin.
+        active_id: i32,
+        /// Per-bin base reserves (`u64` raw base units). Length
+        /// must equal `bin_price.len()`.
+        bin_amount_x: Vec<u64>,
+        /// Per-bin quote reserves (`u64` raw quote units).
+        /// Length must equal `bin_amount_x.len()`.
+        bin_amount_y: Vec<u64>,
+        /// Per-bin price scaled by the AMM's `SCALE_OFFSET`
+        /// (DLMM: 1e12). `u128` to cover the full dynamic
+        /// range without losing precision. Length must equal
+        /// `bin_amount_x.len()`.
+        bin_price: Vec<u128>,
+    },
+}
+
+impl Default for PoolExtrasWire {
+    fn default() -> Self {
+        PoolExtrasWire::Raydium
+    }
+}
+
 /// A single unit of market data observed from our vantage point.
 ///
 /// Intentionally minimal for Phase 1; Phase 2 extends this with decoded pool/transaction
@@ -21,14 +84,69 @@ pub enum FeedEvent {
         pubkey: [u8; 32],
         data: Vec<u8>,
     },
+    /// A decoded pool update. Emitted when a subscription was
+    /// for a pool account whose layout we recognise at the feed
+    /// layer (currently Meteora DLMM `LbPair` via
+    /// `dl_feed::dlmm` and Orca Whirlpool via
+    /// `dl_feed::whirlpool`). The detector and sim consume
+    /// this directly without re-decoding the raw bytes. The
+    /// capture file stays additive-only: a v1 file that
+    /// contains only `Slot` and `AccountUpdate` frames
+    /// decodes unchanged.
+    Pool {
+        /// Slot at which the pool update was observed.
+        slot: Slot,
+        /// AMM family discriminator. See `amm_tag` constants.
+        amm: u8,
+        /// Pool account address (the LbPair / Whirlpool / AmmInfo pubkey).
+        pool: [u8; 32],
+        /// Base token mint (token X for DLMM).
+        base_mint: [u8; 32],
+        /// Quote token mint (token Y for DLMM).
+        quote_mint: [u8; 32],
+        /// Trading fee in basis points. DLMM: `LbPair.bin_step`.
+        fee_bps: u16,
+        /// Latest known SPL-token base vault amount (`u64` raw
+        /// base units). 0 if no vault updates have been seen
+        /// yet.
+        base_reserve: u64,
+        /// Latest known SPL-token quote vault amount (`u64`
+        /// raw quote units).
+        quote_reserve: u64,
+        /// AMM-kind-specific extras. See `PoolExtrasWire`.
+        extras: PoolExtrasWire,
+        /// Slot at which the pool's underlying account was last
+        /// updated. Same as `slot` for in-order subscriptions.
+        last_update_slot: Slot,
+    },
+    /// The feed has halted because a subscribed pool's
+    /// last-seen slot is older than the staleness threshold
+    /// (DAM-31.D / DAM-36). `last_seen_slot` is the slot at
+    /// which the silent pool was last seen;
+    /// `staleness_slots = now_slot - last_seen_slot`. The feed
+    /// emits no further events after this one. Trading must
+    /// stop on receipt.
+    StalePoolHalt {
+        /// Slot at which the silent pool was last seen.
+        last_seen_slot: Slot,
+        /// Pubkey of the pool (vault or pool account) that went stale.
+        pubkey: [u8; 32],
+        /// Number of slots since the last update for the silent pool.
+        staleness_slots: u64,
+    },
 }
 
 impl FeedEvent {
     /// The slot at which our vantage point observed this event.
+    /// For [`FeedEvent::StalePoolHalt`] this returns
+    /// `last_seen_slot` (the most recent confirmed slot before
+    /// the trip).
     pub fn slot(&self) -> Slot {
         match self {
             FeedEvent::Slot { slot } => *slot,
             FeedEvent::AccountUpdate { slot, .. } => *slot,
+            FeedEvent::Pool { slot, .. } => *slot,
+            FeedEvent::StalePoolHalt { last_seen_slot, .. } => *last_seen_slot,
         }
     }
 }
@@ -105,5 +223,36 @@ mod tests {
         let mut f = ScriptedFeed::empty();
         assert_eq!(f.next_event(), None);
         assert_eq!(f.remaining(), 0);
+    }
+
+    #[test]
+    fn stale_pool_halt_carries_trip_details() {
+        let halt = FeedEvent::StalePoolHalt {
+            last_seen_slot: 100,
+            pubkey: [0xABu8; 32],
+            staleness_slots: 75,
+        };
+        match halt {
+            FeedEvent::StalePoolHalt {
+                last_seen_slot,
+                pubkey,
+                staleness_slots,
+            } => {
+                assert_eq!(last_seen_slot, 100);
+                assert_eq!(pubkey, [0xABu8; 32]);
+                assert_eq!(staleness_slots, 75);
+                // `slot()` returns last_seen_slot.
+                assert_eq!(
+                    FeedEvent::StalePoolHalt {
+                        last_seen_slot,
+                        pubkey,
+                        staleness_slots,
+                    }
+                    .slot(),
+                    100
+                );
+            }
+            other => panic!("expected StalePoolHalt, got {other:?}"),
+        }
     }
 }

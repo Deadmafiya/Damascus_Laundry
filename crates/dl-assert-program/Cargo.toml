@@ -1,0 +1,31 @@
+[package]
+name = "dl-assert-program"
+version = "0.0.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "dl-assert: Solana BPF program that asserts a Jito bundle's net SOL delta for v2.0 atomicity (see plan/atomicity-decision.md)."
+
+[lib]
+name = "dl_assert_program"
+crate-type = ["cdylib"]
+path = "src/lib.rs"
+
+[features]
+# Default: no_std BPF target (used by `cargo build-sbf`).
+# `std` feature: enable std for host-side testing of the
+# decode/encode logic via dev-dependencies. NOT used for the
+# actual BPF build.
+default = []
+std = []
+
+[dependencies]
+solana-program = { version = "2", default-features = false }
+
+[dev-dependencies]
+solana-program = { version = "2", features = ["default"] }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = "symbols"

@@ -1,0 +1,37 @@
+[package]
+name = "dl-calibration"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+dl-core.workspace = true
+dl-ledger.workspace = true
+dl-recon.workspace = true
+dl-recon-overfit.workspace = true
+dl-sim.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror = "1"
+tracing.workspace = true
+
+[features]
+# DAM-64: gates the `dl-recon::reconcile` consumer module
+# (`dam64.rs`) and the `--from-reconciliation` flag in
+# `dl-calibrate`. Default off so the default `cargo build`
+# does not pull the DAM-64 surface.
+dam64 = []
+
+[dev-dependencies]
+# DAM-64: dam64.rs tests build a small ledger in-memory and assert
+# on `Decision` variants. `dl-ledger` is also a transitive dep of
+# `dl-recon`, so adding it here does not grow the production surface.
+dl-ledger.workspace = true
+
+[[bin]]
+name = "dl-calibrate"
+path = "src/bin/calibrate.rs"
+
+[[bin]]
+name = "dl-niches"
+path = "src/bin/niches.rs"

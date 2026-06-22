@@ -1,16 +1,16 @@
-# Graph Report - damascus_laundry  (2026-06-20)
+# Graph Report - damascus_laundry  (2026-06-21)
 
 ## Corpus Check
-- 236 files · ~564,537 words
+- 253 files · ~595,823 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 2679 nodes · 4466 edges · 177 communities (154 shown, 23 thin omitted)
-- Extraction: 97% EXTRACTED · 3% INFERRED · 0% AMBIGUOUS · INFERRED: 113 edges (avg confidence: 0.8)
+- 3185 nodes · 5676 edges · 192 communities (170 shown, 22 thin omitted)
+- Extraction: 97% EXTRACTED · 3% INFERRED · 0% AMBIGUOUS · INFERRED: 142 edges (avg confidence: 0.8)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `a4dc7a18`
+- Built from commit: `7b9a465f`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -112,6 +112,7 @@
 - [[_COMMUNITY_scriptsseed_wallet.sh|scripts/seed_wallet.sh]]
 - [[_COMMUNITY_scriptsstart_paper_trader.sh|scripts/start_paper_trader.sh]]
 - [[_COMMUNITY_scriptsstop_paper_trader.sh|scripts/stop_paper_trader.sh]]
+- [[_COMMUNITY_dl-stream lib.rs|dl-stream lib.rs]]
 - [[_COMMUNITY_Community 111|Community 111]]
 - [[_COMMUNITY_Community 112|Community 112]]
 - [[_COMMUNITY_Community 113|Community 113]]
@@ -169,70 +170,84 @@
 - [[_COMMUNITY_Community 165|Community 165]]
 - [[_COMMUNITY_Community 166|Community 166]]
 - [[_COMMUNITY_Community 167|Community 167]]
+- [[_COMMUNITY_Community 177|Community 177]]
+- [[_COMMUNITY_Community 178|Community 178]]
+- [[_COMMUNITY_Community 179|Community 179]]
+- [[_COMMUNITY_Community 180|Community 180]]
+- [[_COMMUNITY_Community 181|Community 181]]
+- [[_COMMUNITY_Community 182|Community 182]]
+- [[_COMMUNITY_Community 183|Community 183]]
+- [[_COMMUNITY_Community 184|Community 184]]
+- [[_COMMUNITY_Community 185|Community 185]]
+- [[_COMMUNITY_Community 186|Community 186]]
+- [[_COMMUNITY_Community 187|Community 187]]
+- [[_COMMUNITY_Community 188|Community 188]]
+- [[_COMMUNITY_Community 189|Community 189]]
+- [[_COMMUNITY_Community 190|Community 190]]
 
 ## God Nodes (most connected - your core abstractions)
-1. `replay_pools_to_ledger()` - 30 edges
-2. `ArbiNexus` - 30 edges
-3. `MetricsRegistry` - 29 edges
-4. `build_from_pools()` - 27 edges
-5. `ArbiNexus Submission Copy` - 24 edges
-6. `simulate_cycle()` - 22 edges
-7. `run_paper_live()` - 20 edges
-8. `evaluate()` - 20 edges
-9. `fill_constant_product()` - 16 edges
-10. `decode_amm_info()` - 16 edges
+1. `ArbiNexus` - 30 edges
+2. `MetricsRegistry` - 29 edges
+3. `replay_pools_to_ledger()` - 29 edges
+4. `submit_opportunity()` - 27 edges
+5. `build_from_pools()` - 27 edges
+6. `simulate_cycle()` - 25 edges
+7. `ArbiNexus Submission Copy` - 24 edges
+8. `build_unsigned_bundle()` - 21 edges
+9. `evaluate()` - 20 edges
+10. `HttpJitoClient` - 18 edges
 
 ## Surprising Connections (you probably didn't know these)
-- `golden_replay_empty_pools_is_stable()` --calls--> `replay_pools_to_ledger()`  [INFERRED]
-  crates/dl-recon/tests/golden_replay.rs → crates/dl-recon/src/pipeline.rs
 - `@/*` --extends--> `Ref`  [EXTRACTED]
   vendor/arbinexus/apps/web/tsconfig.json → crates/dl-state/docs/raydium_state.rs
-- `run_paper_live()` --calls--> `synth_triangle_pools()`  [INFERRED]
-  crates/dl-app/src/live.rs → crates/dl-app/src/dry_run.rs
+- `build_probe_bundle()` --calls--> `build_assert_instruction()`  [INFERRED]
+  crates/dl-app/src/bin/dl-latency-probe.rs → crates/dl-assert-sdk/src/lib.rs
+- `build_probe_bundle()` --calls--> `derive_vault_pda()`  [INFERRED]
+  crates/dl-app/src/bin/dl-latency-probe.rs → crates/dl-assert-sdk/src/lib.rs
+- `main()` --calls--> `poll_bundle_landing()`  [INFERRED]
+  crates/dl-app/src/bin/dl-latency-probe.rs → crates/dl-executor/src/landing.rs
 - `synth_triangle_mints_form_a_cycle()` --calls--> `synth_triangle_pools()`  [INFERRED]
-  crates/dl-app/tests/dry_run_e2e.rs → crates/dl-app/src/dry_run.rs
-- `synth_triangle_pools_are_three_distinct_addresses()` --calls--> `synth_triangle_pools()`  [INFERRED]
   crates/dl-app/tests/dry_run_e2e.rs → crates/dl-app/src/dry_run.rs
 
 ## Import Cycles
+- 1-file cycle: `crates/dl-app/src/bin/dl-latency-probe.rs -> crates/dl-app/src/bin/dl-latency-probe.rs`
 - 1-file cycle: `crates/dl-app/src/config.rs -> crates/dl-app/src/config.rs`
 - 1-file cycle: `crates/dl-app/src/dry_run.rs -> crates/dl-app/src/dry_run.rs`
 - 1-file cycle: `crates/dl-feed/src/capturing.rs -> crates/dl-feed/src/capturing.rs`
 - 1-file cycle: `crates/dl-recon/src/fixture.rs -> crates/dl-recon/src/fixture.rs`
 - 1-file cycle: `crates/dl-ledger/src/reader.rs -> crates/dl-ledger/src/reader.rs`
 - 1-file cycle: `crates/dl-app/src/live.rs -> crates/dl-app/src/live.rs`
-- 1-file cycle: `crates/dl-signer/src/bin/dl-signer.rs -> crates/dl-signer/src/bin/dl-signer.rs`
+- 1-file cycle: `crates/dl-executor/src/signer_integration.rs -> crates/dl-executor/src/signer_integration.rs`
+- 1-file cycle: `crates/dl-executor/src/landing.rs -> crates/dl-executor/src/landing.rs`
+- 1-file cycle: `crates/dl-executor/src/simulate.rs -> crates/dl-executor/src/simulate.rs`
 - 1-file cycle: `crates/dl-executor/src/jito.rs -> crates/dl-executor/src/jito.rs`
 - 1-file cycle: `crates/dl-app/src/main.rs -> crates/dl-app/src/main.rs`
 - 1-file cycle: `crates/dl-app/src/metrics_prom.rs -> crates/dl-app/src/metrics_prom.rs`
+- 1-file cycle: `crates/dl-signer/src/bin/dl-signer.rs -> crates/dl-signer/src/bin/dl-signer.rs`
 - 1-file cycle: `crates/dl-app/src/metrics.rs -> crates/dl-app/src/metrics.rs`
+- 1-file cycle: `crates/dl-app/src/opportunity.rs -> crates/dl-app/src/opportunity.rs`
 - 1-file cycle: `crates/dl-app/src/recon.rs -> crates/dl-app/src/recon.rs`
 - 1-file cycle: `crates/dl-ledger/src/entry.rs -> crates/dl-ledger/src/entry.rs`
 - 1-file cycle: `crates/dl-app/tests/recon_cli.rs -> crates/dl-app/tests/recon_cli.rs`
-- 1-file cycle: `crates/dl-core/src/display.rs -> crates/dl-core/src/display.rs`
-- 1-file cycle: `crates/dl-core/src/feed.rs -> crates/dl-core/src/feed.rs`
-- 1-file cycle: `crates/dl-core/src/prob.rs -> crates/dl-core/src/prob.rs`
-- 1-file cycle: `crates/dl-feed/tests/determinism.rs -> crates/dl-feed/tests/determinism.rs`
-- 1-file cycle: `crates/dl-detect/src/bellman_ford.rs -> crates/dl-detect/src/bellman_ford.rs`
-- 1-file cycle: `crates/dl-detect/src/cycle.rs -> crates/dl-detect/src/cycle.rs`
+- 1-file cycle: `crates/dl-assert-program/src/lib.rs -> crates/dl-assert-program/src/lib.rs`
 
-## Communities (177 total, 23 thin omitted)
+## Communities (192 total, 22 thin omitted)
 
 ### Community 0 - "Net Profit & EV Math"
 Cohesion: 0.07
 Nodes (42): NetProfit, Result, Self, SimError, NetProfit, arb_net_profit(), CompetitionParams, conservative_below_raw_and_below_optimistic() (+34 more)
 
 ### Community 1 - "Capture Pipeline & Replay Params"
-Cohesion: 0.07
-Nodes (55): CostModel, Cycle, Default, EvalOutcome, EvalParams, F, LedgerEntry, NetProfit (+47 more)
+Cohesion: 0.06
+Nodes (66): CostModel, Cycle, Default, EvalOutcome, EvalParams, F, LedgerEntry, NetProfit (+58 more)
 
 ### Community 2 - "Feed Error & ScriptedFeed RNG"
 Cohesion: 0.09
-Nodes (30): F, Feed, FeedEvent, Option, Self, Vec, bounded_corrupt_rolls_under_threshold(), bounded_drop_drops_first_n_then_passes() (+22 more)
+Nodes (31): F, Feed, FeedEvent, Option, Self, Vec, ScriptedFeed, bounded_corrupt_rolls_under_threshold() (+23 more)
 
 ### Community 3 - "dl-app Main & Config Init"
-Cohesion: 0.05
-Nodes (70): Command, Box, Cycle, EvalParams, ExitCode, FeedError, Option, Path (+62 more)
+Cohesion: 0.12
+Nodes (34): Command, DecodeError, Option, Pool, Pubkey, Result, Vec, Option (+26 more)
 
 ### Community 4 - "AMM Fill Math & Errors"
 Cohesion: 0.07
@@ -244,7 +259,7 @@ Nodes (40): BTreeSet, Cycle, Graph, Vec, AmmKind, BTreeMap, DetectError, Option 
 
 ### Community 6 - "Cycle Simulation & Leg Fills"
 Cohesion: 0.09
-Nodes (44): Cycle, Direction, Pool, PoolRegistry, Pubkey, Result, SimError, Vec (+36 more)
+Nodes (46): Cycle, Direction, Leg, Pool, PoolRegistry, Pubkey, Result, SimError (+38 more)
 
 ### Community 7 - "AMM Program Identifier & Decoder Mod"
 Cohesion: 0.07
@@ -256,7 +271,7 @@ Nodes (30): CaptureConfig, CostConfig, CostModel, Default, EvalParams, From, Pat
 
 ### Community 9 - "Capture Feed (writing bincode)"
 Cohesion: 0.09
-Nodes (27): CaptureWriter, F, Feed, FeedError, FeedEvent, Option, Result, Self (+19 more)
+Nodes (36): CaptureWriter, F, Feed, FeedError, FeedEvent, Option, Result, Self (+28 more)
 
 ### Community 10 - "Display Formatter & Amount Errors"
 Cohesion: 0.07
@@ -267,16 +282,16 @@ Cohesion: 0.12
 Nodes (29): Duration, Feed, FeedError, FeedEvent, HashMap, Option, Result, Self (+21 more)
 
 ### Community 12 - "Live Paper Run & Recon Report"
-Cohesion: 0.07
-Nodes (42): CapConfig, CapState, Bundle, Default, ExecutorError, Option, Path, ReconReport (+34 more)
+Cohesion: 0.16
+Nodes (10): Default, ExecutorError, Result, Self, tip_lamports(), TipConfig, validate_accepts_valid_config(), validate_config() (+2 more)
 
 ### Community 13 - "Raydium AMM v4 State Decoding"
 Cohesion: 0.10
 Nodes (22): SolanaWalletProvider(), convictionConfig, DemoWalletContext, DemoWalletContextValue, DemoWalletProvider(), useDemoWallet(), MarketContext, MarketContextValue (+14 more)
 
 ### Community 14 - "Synth Pool Fixture & Triangle Builder"
-Cohesion: 0.14
-Nodes (31): BTreeMap, Pool, ReconError, ReplayParams, Result, Self, Vec, PathBuf (+23 more)
+Cohesion: 0.07
+Nodes (59): main(), glob_paths(), main(), ExitCode, ExitCode, PathBuf, Result, Vec (+51 more)
 
 ### Community 15 - "Deflated Sharpe Ratio (overfit defense)"
 Cohesion: 0.15
@@ -296,14 +311,14 @@ Nodes (51): AnchorDivergence, CalibrationFit, Option, Path, ReplayParams, Result
 
 ### Community 19 - "Jito Bundle & Swap Leg"
 Cohesion: 0.17
-Nodes (18): Default, ExecutorError, Into, Option, Result, Self, String, Vec (+10 more)
+Nodes (29): Default, ExecutorError, Into, Option, Pubkey, Result, Self, String (+21 more)
 
 ### Community 20 - "Ledger Summary & Percentiles"
 Cohesion: 0.10
 Nodes (16): CostBreakdown, ExpectedValue, LedgerEntry, LedgerError, Result, Self, empty_costs(), empty_input() (+8 more)
 
 ### Community 21 - "KeyStore & KeyFile"
-Cohesion: 0.16
+Cohesion: 0.15
 Nodes (17): Debug, Formatter, Path, Result, Self, Vec, Drop, SignerError (+9 more)
 
 ### Community 22 - "Ledger Entry & Decision"
@@ -315,8 +330,8 @@ Cohesion: 0.08
 Nodes (25): AppSidebar(), iconMap, cards, CoreSignalCards(), DashboardTopbar(), ctaButtons, HeroSection(), statusCards (+17 more)
 
 ### Community 24 - "Jupiter Quote & Jito Client Mocks"
-Cohesion: 0.15
-Nodes (21): Bundle, Default, ExecutorError, Mutex, Result, Self, Send, String (+13 more)
+Cohesion: 0.08
+Nodes (40): BundleStatusResponseWrapper, Bundle, Client, Default, Duration, ExecutorError, Into, Mutex (+32 more)
 
 ### Community 25 - "Paper Wallet Trade & Side"
 Cohesion: 0.15
@@ -331,7 +346,7 @@ Cohesion: 0.14
 Nodes (10): Arc, AtomicU64, Debug, Default, MetricsSnapshot, Counter, Gauge, MetricsRegistry (+2 more)
 
 ### Community 28 - "Cap Config & Per-Bundle Limit"
-Cohesion: 0.15
+Cohesion: 0.14
 Nodes (17): Default, Display, Formatter, From, Result, Self, NaiveDate, CapConfig (+9 more)
 
 ### Community 29 - "Capture Format & Writer"
@@ -344,15 +359,15 @@ Nodes (8): Default, Result, Self, Err, FromStr, LiveMode, LiveModeParseError, Re
 
 ### Community 31 - "Meteora DLMM LbPair Decode"
 Cohesion: 0.14
-Nodes (20): DecodeError, Display, Error, Formatter, Option, Pubkey, Result, Vec (+12 more)
+Nodes (22): DecodeError, Display, Error, Formatter, Option, Pool, Pubkey, Result (+14 more)
 
 ### Community 32 - "Prometheus Metrics Adapter"
-Cohesion: 0.16
-Nodes (15): Arc, MetricsSnapshot, Self, String, MetricsRegistry, MetricsSink, counter_renders_with_help_and_type(), empty_registry_renders_empty_body() (+7 more)
+Cohesion: 0.14
+Nodes (21): Arc, LandingLatencySnapshot, LiveMetrics, MetricsSnapshot, Self, String, MetricsRegistry, MetricsSink (+13 more)
 
 ### Community 33 - "Jupiter Quote Request & String"
-Cohesion: 0.17
-Nodes (16): ExecutorError, HashMap, Into, Result, Self, Send, String, Sync (+8 more)
+Cohesion: 0.10
+Nodes (35): Client, Duration, ExecutorError, HashMap, Into, Option, Pubkey, Result (+27 more)
 
 ### Community 34 - "Ledger Hash & From Cycle"
 Cohesion: 0.12
@@ -367,8 +382,8 @@ Cohesion: 0.11
 Nodes (13): HashMap, Send, String, Sync, Vec, display_buckets(), gauge_starts_at_zero_and_can_be_set(), HistogramInner (+5 more)
 
 ### Community 37 - "Orca Whirlpool Decode"
-Cohesion: 0.17
-Nodes (17): DecodeError, Display, Error, Formatter, Pubkey, Result, Vec, decode_extracts_fields() (+9 more)
+Cohesion: 0.21
+Nodes (22): DecodeError, Pool, Pubkey, Result, Vec, assemble_whirlpool_pool(), assemble_whirlpool_real_pool(), assemble_whirlpool_real_pool_populates_extras() (+14 more)
 
 ### Community 38 - "Clock Trait & SystemClock"
 Cohesion: 0.20
@@ -383,8 +398,8 @@ Cohesion: 0.19
 Nodes (13): DecodeError, F, HashMap, Pubkey, Result, Self, closure_source_delegates(), ClosureMintSource (+5 more)
 
 ### Community 41 - "Pubkey & Base58 Encoding"
-Cohesion: 0.14
-Nodes (10): AsRef, From, MathError, Option, Result, Self, String, AmmKind (+2 more)
+Cohesion: 0.13
+Nodes (12): AsRef, Default, From, MathError, Option, Result, Self, String (+4 more)
 
 ### Community 42 - "Jito Tip Config"
 Cohesion: 0.06
@@ -439,8 +454,8 @@ Cohesion: 0.26
 Nodes (10): Result, Self, SimError, CostBreakdown, CostModel, default_busy_baseline_matches_plan(), default_min_baseline_matches_plan(), total_cost_is_deterministic() (+2 more)
 
 ### Community 55 - "Raydium Program Error & Loadable"
-Cohesion: 0.42
-Nodes (7): AccountInfo, Pubkey, Self, AmmConfig, ProgramError, Ref, RefMut
+Cohesion: 0.30
+Nodes (9): AccountInfo, Default, Pubkey, Self, AmmConfig, TargetOrders, ProgramError, Ref (+1 more)
 
 ### Community 56 - "Capture Roundtrip Scripted Feed"
 Cohesion: 0.18
@@ -458,21 +473,25 @@ Nodes (7): counter_is_clonable_and_shares_state(), counter_starts_at_zero_and_in
 Cohesion: 0.21
 Nodes (7): Path, PathBuf, Vec, is_bare_token(), no_floats_in_recon_sources(), walk(), no_fractional_types_in_dl_ledger_src()
 
+### Community 60 - "Raydium AmmParams Bitflags"
+Cohesion: 0.07
+Nodes (54): Cycle, DlPubkey, F, Fn, From, Hash, Instruction, JupiterClient (+46 more)
+
 ### Community 61 - "Ledger Properties Cost Breakdown"
 Cohesion: 0.29
 Nodes (10): BoxedStrategy, CostBreakdown, ExpectedValue, LedgerEntry, Prob, arb_entry(), arb_ev(), arb_ledger_entry() (+2 more)
 
 ### Community 62 - "Live Metrics Counters"
-Cohesion: 0.29
-Nodes (7): AtomicU64, Self, LiveMetricsSnapshot, LiveMetrics, LiveMetricsSnapshot, snapshot_is_zero_for_fresh_metrics(), snapshot_reflects_increments()
+Cohesion: 0.10
+Nodes (24): AtomicU64, Default, HashMap, LandingLatencySnapshot, Mutex, Self, Vec, LandingLatencyRing (+16 more)
 
 ### Community 63 - "Feed Determinism Scripted Vec"
 Cohesion: 0.53
 Nodes (9): FeedEvent, Vec, capture(), different_seed_different_capture_bytes(), replay(), round_trip_preserves_events(), same_seed_same_capture_bytes(), script() (+1 more)
 
 ### Community 64 - "Raydium TargetOrder & Pod"
-Cohesion: 0.16
-Nodes (10): Default, LastOrderDistance, Loadable, SimulateParams, TargetOrder, TargetOrders, test_target_info_layout(), Pod (+2 more)
+Cohesion: 0.12
+Nodes (10): AmmParams, AmmResetFlag, LastOrderDistance, Loadable, SimulateParams, TargetOrder, test_target_info_layout(), Pod (+2 more)
 
 ### Community 65 - "SeededRng Trait"
 Cohesion: 0.33
@@ -525,6 +544,10 @@ Nodes (30): dependencies, @arbinexus/types, @arbinexus/ui, lucide-react, next, r
 ### Community 86 - "Raydium SimulateParams"
 Cohesion: 0.09
 Nodes (28): ASSET_SYMBOLS, AssetSnapshot, buildServerlessApp(), CACHE_TTL_MS, calcConfidenceScore(), computeOpportunity(), computeSpreadPct(), DEFAULT_INPUT_AMOUNTS (+20 more)
+
+### Community 104 - "dl-stream lib.rs"
+Cohesion: 0.07
+Nodes (54): CalibrationResult, CapState, Arc, Bundle, Cycle, DlPubkey, EvalParams, ExecutorError (+46 more)
 
 ### Community 111 - "Community 111"
 Cohesion: 0.07
@@ -742,25 +765,81 @@ Nodes (3): Dashboard and API, Deployment, Landing page
 Cohesion: 0.67
 Nodes (3): Long-term, Near-term, Roadmap
 
+### Community 177 - "Community 177"
+Cohesion: 0.15
+Nodes (34): build_probe_bundle(), build_probe_bundle_produces_5_txs_with_correct_blockhash(), build_probe_bundle_signs_with_keystore(), dummy_signed_tx(), dummy_signed_tx_with_amount(), fetch_blockhash(), load_keystore(), main() (+26 more)
+
+### Community 178 - "Community 178"
+Cohesion: 0.11
+Nodes (21): main(), ExitCode, Client, Default, HashMap, Into, Pubkey, Result (+13 more)
+
+### Community 179 - "Community 179"
+Cohesion: 0.14
+Nodes (21): Default, Duration, ExecutorError, Into, Option, Path, PathBuf, Result (+13 more)
+
+### Community 180 - "Community 180"
+Cohesion: 0.15
+Nodes (29): ExecutorError, Option, Pubkey, Result, String, Vec, VersionedTransaction, RpcClient (+21 more)
+
+### Community 181 - "Community 181"
+Cohesion: 0.17
+Nodes (22): ExitCode, HashMap, Option, PathBuf, Pool, Pubkey, Result, Vec (+14 more)
+
+### Community 182 - "Community 182"
+Cohesion: 0.18
+Nodes (20): Default, Duration, ExecutorError, F, LandingResult, Result, Self, MockJitoClient (+12 more)
+
+### Community 183 - "Community 183"
+Cohesion: 0.13
+Nodes (10): AccountInfo, Pubkey, Result, ProgramResult, decode_min_pnl(), decode_min_pnl_rejects_discriminator_255(), decode_min_pnl_rejects_long_data(), decode_min_pnl_rejects_short_data() (+2 more)
+
+### Community 184 - "Community 184"
+Cohesion: 0.12
+Nodes (15): 1. Pre-flight (Phase 0 checklist), 2. Hot wallet keyfile creation, 3. Hot wallet funding SOP (manual, fail-closed), 3a. Devnet funding, 3b. Mainnet funding, 3c. Drain-on-completion, 4. The 4-tier ladder, 5. Recon procedure (+7 more)
+
+### Community 185 - "Community 185"
+Cohesion: 0.27
+Nodes (10): LedgerEntry, LedgerError, Result, Self, W, dummy_entry(), LedgerWriter, LedgerWriter<W> (+2 more)
+
+### Community 186 - "Community 186"
+Cohesion: 0.24
+Nodes (12): Box, FeedError, Send, String, Future, Output, Pin, connect_mainnet_async() (+4 more)
+
+### Community 187 - "Community 187"
+Cohesion: 0.27
+Nodes (10): CostModel, Cycle, EvalParams, Path, String, PaperWallet, append_cycle_jsonl(), evaluate_and_write_cycles() (+2 more)
+
+### Community 188 - "Community 188"
+Cohesion: 0.25
+Nodes (7): Phase 1c — mainnet-paper (0.001 SOL/day cap), Phase 1d — tiny mainnet (<0.5 SOL/day cap), Phase 2 — calibration (the meaty coding work — see agent), Phase 3 — 24/7 reliability (mostly code, one systemd unit), Phase 4 — scale (future, profit-funded), v2.0 Live Operator Runbook (manual steps), Where everything lives
+
+### Community 189 - "Community 189"
+Cohesion: 0.47
+Nodes (3): keyfile_from_disk_decrypts_and_signs_if_env_set(), keyfile_secret_bytes_interop_with_ed25519_dalek(), test_message()
+
+### Community 190 - "Community 190"
+Cohesion: 0.40
+Nodes (4): Display, Error, Formatter, DecodeError
+
 ## Knowledge Gaps
-- **725 isolated node(s):** `CaptureConfig`, `ReconConfig`, `SubmitPathTag`, `From`, `CostConfig` (+720 more)
+- **776 isolated node(s):** `Vec`, `CaptureConfig`, `ReconConfig`, `SubmitPathTag`, `From` (+771 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **23 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **22 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `replay_pools_to_ledger()` connect `Capture Pipeline & Replay Params` to `Bellman-Ford Negative Cycle Detection`, `Live Paper Run & Recon Report`, `Synth Pool Fixture & Triangle Builder`, `Recon Invariants & Determinism`, `Dry-Run Ledger Pipeline`?**
-  _High betweenness centrality (0.069) - this node is a cross-community bridge._
-- **Why does `evaluate()` connect `Net Profit & EV Math` to `Capture Pipeline & Replay Params`, `dl-app Main & Config Init`?**
-  _High betweenness centrality (0.038) - this node is a cross-community bridge._
-- **Why does `evaluate_cycle()` connect `Capture Pipeline & Replay Params` to `Net Profit & EV Math`, `Cycle Simulation & Leg Fills`?**
-  _High betweenness centrality (0.036) - this node is a cross-community bridge._
-- **Are the 16 inferred relationships involving `replay_pools_to_ledger()` (e.g. with `synth_report()` and `write_synth_ledger()`) actually correct?**
-  _`replay_pools_to_ledger()` has 16 INFERRED edges - model-reasoned connections that need verification._
+- **Why does `derive_vault_pda()` connect `Raydium AmmParams Bitflags` to `Community 177`, `Community 181`?**
+  _High betweenness centrality (0.095) - this node is a cross-community bridge._
+- **Why does `run_live_submit()` connect `Community 181` to `Raydium AmmParams Bitflags`?**
+  _High betweenness centrality (0.094) - this node is a cross-community bridge._
+- **Why does `build_unsigned_bundle()` connect `Raydium AmmParams Bitflags` to `dl-stream lib.rs`?**
+  _High betweenness centrality (0.061) - this node is a cross-community bridge._
+- **Are the 15 inferred relationships involving `replay_pools_to_ledger()` (e.g. with `synth_report()` and `write_synth_ledger()`) actually correct?**
+  _`replay_pools_to_ledger()` has 15 INFERRED edges - model-reasoned connections that need verification._
+- **Are the 4 inferred relationships involving `submit_opportunity()` (e.g. with `assert_min_net_pnl_threshold_reasonable()` and `build_unsigned_bundle()`) actually correct?**
+  _`submit_opportunity()` has 4 INFERRED edges - model-reasoned connections that need verification._
 - **Are the 6 inferred relationships involving `build_from_pools()` (e.g. with `finds_2leg_arb_in_two_pools_same_pair()` and `finds_3leg_triangle_arb()`) actually correct?**
   _`build_from_pools()` has 6 INFERRED edges - model-reasoned connections that need verification._
-- **What connects `CaptureConfig`, `ReconConfig`, `SubmitPathTag` to the rest of the system?**
-  _727 weakly-connected nodes found - possible documentation gaps or missing edges._
-- **Should `Net Profit & EV Math` be split into smaller, more focused modules?**
-  _Cohesion score 0.07155399473222125 - nodes in this community are weakly interconnected._
+- **What connects `Vec`, `CaptureConfig`, `ReconConfig` to the rest of the system?**
+  _778 weakly-connected nodes found - possible documentation gaps or missing edges._

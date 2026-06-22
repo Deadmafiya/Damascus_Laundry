@@ -1,0 +1,21 @@
+[package]
+name = "dl-assert-sdk"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Rust SDK + tests for the dl-assert Solana program (v2.0 atomicity ADR)."
+
+[dependencies]
+solana-sdk.workspace = true
+thiserror = "1"
+
+[lib]
+name = "dl_assert_sdk"
+path = "src/lib.rs"
+
+[[bin]]
+name = "dl-assert-sdk"
+path = "src/bin/dl_assert_sdk.rs"
+
+[dev-dependencies]
+# (none yet)

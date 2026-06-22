@@ -56,6 +56,7 @@ pub fn synth_triangle_pools() -> Vec<Pool> {
             quote_reserve: 1_000_000_000, // 1 SOL
             fee_bps: 30,
             last_update_slot: 0,
+            ..Default::default()
         },
         // Pool 2: SOL/USDT — 1 SOL = 105 USDT.
         // base = SOL (9 dec), quote = USDT (6 dec).
@@ -70,6 +71,7 @@ pub fn synth_triangle_pools() -> Vec<Pool> {
             quote_reserve: 105_000_000,  // 105 USDT
             fee_bps: 30,
             last_update_slot: 0,
+            ..Default::default()
         },
         // Pool 3: USDT/USDC — 1 USDC = 1.001 USDT.
         // base = USDT (6 dec), quote = USDC (6 dec).
@@ -84,6 +86,7 @@ pub fn synth_triangle_pools() -> Vec<Pool> {
             quote_reserve: 1_000_000_000,    // 1M USDC
             fee_bps: 30,
             last_update_slot: 0,
+            ..Default::default()
         },
     ]
 }

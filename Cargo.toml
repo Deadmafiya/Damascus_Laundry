@@ -14,6 +14,36 @@ members = [
     "crates/dl-executor",
     "crates/dl-stream",
     "crates/dl-paper",
+    "crates/dl-assert-sdk",
+    "crates/dl-oracle",
+    "crates/dl-calibration",
+    "crates/dl-pipeline",
+]
+# The BPF program (dl-assert-program) is a special build target
+# (`cargo build-sbf` → bpfel-unknown-unknown). It is excluded
+# from the workspace so `cargo test --workspace` / `cargo build --workspace`
+# stay fast and BPF-toolchain-free. To test or build it:
+#   cargo test  -p dl-assert-program --features std
+#   cargo build-sbf                         (requires Solana SDK install)
+exclude = ["crates/dl-assert-program"]
+default-members = [
+    "crates/dl-core",
+    "crates/dl-feed",
+    "crates/dl-state",
+    "crates/dl-detect",
+    "crates/dl-sim",
+    "crates/dl-ledger",
+    "crates/dl-app",
+    "crates/dl-recon",
+    "crates/dl-recon-overfit",
+    "crates/dl-signer",
+    "crates/dl-executor",
+    "crates/dl-stream",
+    "crates/dl-paper",
+    "crates/dl-assert-sdk",
+    "crates/dl-oracle",
+    "crates/dl-calibration",
+    "crates/dl-pipeline",
 ]
 
 [workspace.package]
@@ -33,6 +63,10 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 bincode = "1"
 thiserror = "1"
+solana-sdk = { version = "2", features = ["full"] }
+solana-client = "2"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 
 # Internal crates
 dl-core = { path = "crates/dl-core", version = "0.0.0" }
@@ -48,6 +82,11 @@ dl-signer = { path = "crates/dl-signer", version = "0.0.0" }
 dl-executor = { path = "crates/dl-executor", version = "0.0.0" }
 dl-stream = { path = "crates/dl-stream", version = "0.0.0" }
 dl-paper = { path = "crates/dl-paper", version = "0.0.0" }
+dl-assert-sdk = { path = "crates/dl-assert-sdk", version = "0.0.0" }
+dl-assert-program = { path = "crates/dl-assert-program", version = "0.0.0" }
+dl-oracle = { path = "crates/dl-oracle", version = "0.0.0" }
+dl-calibration = { path = "crates/dl-calibration", version = "0.0.0" }
+dl-pipeline = { path = "crates/dl-pipeline", version = "0.0.0" }
 
 [profile.release]
 lto = "thin"

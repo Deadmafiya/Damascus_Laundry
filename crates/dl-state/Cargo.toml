@@ -12,4 +12,6 @@ serde.workspace = true
 bs58.workspace = true
 
 [dev-dependencies]
+dl-detect.workspace = true
+dl-stream.workspace = true
 proptest.workspace = true

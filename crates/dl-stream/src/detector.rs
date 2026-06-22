@@ -220,6 +220,7 @@ mod tests {
                 quote_reserve: 1_000_000_000,
                 fee_bps: 30,
                 last_update_slot: 0,
+                ..Default::default()
             },
             Pool {
                 address: Pubkey([0xA2; 32]),
@@ -232,6 +233,7 @@ mod tests {
                 quote_reserve: 105_000_000,
                 fee_bps: 30,
                 last_update_slot: 0,
+                ..Default::default()
             },
             Pool {
                 address: Pubkey([0xA3; 32]),
@@ -244,6 +246,7 @@ mod tests {
                 quote_reserve: 105_105_000,
                 fee_bps: 30,
                 last_update_slot: 0,
+                ..Default::default()
             },
         ]
     }
