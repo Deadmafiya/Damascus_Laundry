@@ -130,6 +130,14 @@ pub struct WriterInputs {
     /// Cumulative realized PnL since UTC midnight. The cycle
     /// path updates this; the writer reads.
     pub realized_pnl_today_lamports: i64,
+    /// UTC date (NaiveDate as days-since-epoch) of the last
+    /// `realized_pnl_today_lamports` reset. Updated by
+    /// `reset_if_new_day` so the writer's PnL ledger rolls
+    /// over at UTC midnight in lockstep with `CapState`.
+    /// Default 0 means "epoch day 1970-01-01" — `reset_if_new_day`
+    /// will fire on the first call until we land the cycle
+    /// path's first write.
+    pub last_pnl_reset_day: i32,
     /// Optional Pyth oracle for the SOL/USD price. When `None`
     /// the writer emits `source = "none"`.
     pub pyth: Option<Arc<dyn PythClient>>,
@@ -137,6 +145,29 @@ pub struct WriterInputs {
     /// `None`. The price function is fixed at $1 — operators
     /// wire the real SOL/USD feed in DAM-42's follow-up.
     pub pyth_sol_feed: Option<solana_sdk::pubkey::Pubkey>,
+}
+
+impl WriterInputs {
+    /// Roll `realized_pnl_today_lamports` to 0 at UTC midnight.
+    /// Callers that update the PnL ledger should call this
+    /// BEFORE adding the new delta, mirroring the cap's own
+    /// `reset_if_new_day`. The reset is a no-op when the date
+    /// has not advanced since the last call.
+    pub fn reset_if_new_day(&mut self) {
+        use chrono::{Datelike, NaiveDate, Utc};
+        let today = Utc::now().date_naive();
+        let today_days = today.num_days_from_ce();
+        if today_days != self.last_pnl_reset_day {
+            self.realized_pnl_today_lamports = 0;
+            self.last_pnl_reset_day = today_days;
+            // Suppress an unused-import warning when the
+            // `chrono` types are only referenced by this
+            // helper. NaiveDate is used implicitly via Utc::now
+            // and the num_days_from_ce conversion; the explicit
+            // reference here keeps the import pair honest.
+            let _ = NaiveDate::from_ymd_opt(1970, 1, 1);
+        }
+    }
 }
 
 /// Build a `LiveStatus` from a snapshot of the live state.
@@ -267,7 +298,21 @@ pub async fn run_writer_loop(
     }
 }
 
-fn tick_once(path: &Path, state: &SharedState) {
+pub fn tick_once(path: &Path, state: &SharedState) {
+    // DAM-99: roll the writer's PnL ledger over at UTC midnight.
+    // The cap is reset by the cycle path on Landed; we also reset
+    // the writer's field here so an idle binary (no Landed for
+    // hours) still rolls over cleanly. The reset is a no-op when
+    // the date has not advanced.
+    match state.inputs.lock() {
+        Ok(mut g) => {
+            g.reset_if_new_day();
+        }
+        Err(p) => {
+            let mut inner = p.into_inner();
+            inner.reset_if_new_day();
+        }
+    }
     // Lock order: cap, then ks, then inputs. Held for
     // microseconds; the writer is the only consumer of all
     // three at the same time, so contention is bounded.

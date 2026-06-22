@@ -34,6 +34,25 @@ use dl_signer::ratelimit::RateLimit;
 use dl_state::pool::Pool as DlPool;
 use dl_state::Pubkey as DlPubkey;
 use crate::opportunity::dl_to_solana_pubkey;
+use crate::live_status::{LastLandedSnapshot, WriterInputs};
+use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+/// Wrapped SOL mint pubkey (base58). Used to look up the SOL/USD
+/// Pyth feed in `LiveConfig::pyth_feeds` so the writer can render
+/// `sol_usd` when a Pyth oracle is configured.
+const WRAPPED_SOL_MINT: &str = "So11111111111111111111111111111111111111112";
+
+/// Wall-clock milliseconds since the Unix epoch. Mirror of
+/// `crate::live_status::unix_ts_ms`; kept private to this module
+/// so the writer-side field is populated with the same time base
+/// the dashboard's `ts_unix_ms` will report on the next tick.
+fn unix_ts_ms() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
 
 /// Configuration for the v2.0 live submit path.
 #[derive(Clone)]
@@ -106,6 +125,15 @@ impl OpportunityOutcome {
 /// 5. Cap + rate-limit + kill switch check BEFORE submit.
 /// 6. Submit via `jito.submit`. Record the outcome on the
 ///    kill switch.
+///
+/// DAM-99: the `live_status_inputs` parameter is the writer's
+/// `Arc<Mutex<WriterInputs>>`. The function sets `running = true`
+/// at entry, populates `pyth` and `pyth_sol_feed` from `cfg`
+/// when a `PythClient` is configured, and updates `last_landed`
+/// and `realized_pnl_today_lamports` when a Jito bundle lands.
+/// The writer side task reads from this and serializes to
+/// `live_status.json` at 1 Hz. The Mutex is held for microseconds
+/// inside this function; the cycle path never blocks on it.
 pub fn submit_opportunity(
     cycle: &Cycle,
     pool_lookup: &dyn Fn(&DlPubkey) -> Option<DlPool>,
@@ -117,9 +145,21 @@ pub fn submit_opportunity(
     rate_limit: &RateLimit,
     killswitch: &mut KillSwitch,
     metrics: &LiveMetrics,
+    live_status_inputs: &Arc<Mutex<WriterInputs>>,
 ) -> OpportunityOutcome {
     use crate::opportunity::build_unsigned_bundle;
     use dl_assert_sdk::assert_min_net_pnl_threshold_reasonable;
+    // DAM-99: signal the writer that the live cycle is alive
+    // (running=true). The dashboard renders a "degraded" state
+    // when running is false.
+    {
+        let mut w = live_status_inputs.lock().expect("WriterInputs mutex poisoned");
+        w.running = true;
+        w.pyth = cfg.pyth.clone();
+        w.pyth_sol_feed = cfg.pyth_feeds.get(
+            &solana_sdk::pubkey::Pubkey::from_str_const(WRAPPED_SOL_MINT),
+        ).copied();
+    }
     let signer_sol = solana_sdk::pubkey::Pubkey::from(<[u8; 32]>::from(keystore.public_key_for_print()));
     let tip_account = cfg.tip_account;
     // Phase 2 C2: assign a stable `seq` to the cycle so calibration
@@ -339,9 +379,31 @@ pub fn submit_opportunity(
                 input_amount_val,
                 &expected_out_per_leg,
             );
+            // DAM-99: populate the writer fields on Landed.
+            // 1) Roll the cap over if UTC midnight has passed
+            //    (matches `CapState::reset_if_new_day`). 2) Roll
+            //    the writer's PnL ledger over to 0 at UTC midnight
+            //    (same semantics, separate field). 3) Add the
+            //    realized proxy to today's running total.
+            //    4) Overwrite `last_landed` (new bundle wins;
+            //    the dashboard does not track a history here).
+            cap_state.reset_if_new_day();
+            {
+                let mut w = live_status_inputs
+                    .lock()
+                    .expect("WriterInputs mutex poisoned");
+                w.reset_if_new_day();
+                w.realized_pnl_today_lamports =
+                    w.realized_pnl_today_lamports.saturating_add(realized_proxy);
+                w.last_landed = LastLandedSnapshot {
+                    bundle_id: Some(jito_result.bundle_id.clone()),
+                    ts_unix_ms: Some(unix_ts_ms()),
+                    profit_lamports: Some(realized_proxy),
+                };
+            }
             OpportunityOutcome::Landed {
                 slot,
-                realized_pnl_lamports: 0,
+                realized_pnl_lamports: realized_proxy,
             }
         }
         Ok(other) => {
@@ -732,6 +794,7 @@ mod live_submit_tests {
             &rl,
             &mut ks,
             &metrics,
+            &Arc::new(Mutex::new(WriterInputs::default())),
         );
         assert!(outcome.landed(), "expected Landed, got {:?}", outcome);
     }
@@ -790,6 +853,7 @@ mod live_submit_tests {
             &rl,
             &mut ks,
             &metrics,
+            &Arc::new(Mutex::new(WriterInputs::default())),
         );
         assert!(matches!(outcome, OpportunityOutcome::Lost));
     }
@@ -854,7 +918,283 @@ mod live_submit_tests {
             &rl,
             &mut ks,
             &metrics,
+            &Arc::new(Mutex::new(WriterInputs::default())),
         );
         assert!(matches!(outcome, OpportunityOutcome::NotSubmitted(_)));
+    }
+
+    // ─── DAM-99 acceptance tests ─────────────────────────────────
+    // The three tests below cover the issue body's acceptance
+    // criteria that are testable without a running network:
+    //   (1) cap day-rollover resets `realized_pnl_today_lamports` to 0;
+    //   (2) kill-switch open does NOT block the writer;
+    //   (3) new bundle overwrites the previous `last_landed_bundle`.
+    // The fourth (Pyth sol_usd) is already covered by the
+    // `live_status_contract` integration test
+    // (`sol_usd_renders_with_pyth_mock`).
+
+    /// Test Jito client that returns a Landed result with a
+    /// caller-specified `tip_lamports` and `bundle_id`, so the
+    /// test can assert the writer picked up exactly those values.
+    struct ConfigurableJito {
+        bundle_id: String,
+        tip_lamports: u64,
+    }
+    impl JitoClient for ConfigurableJito {
+        fn health(&self) -> dl_executor::jito::JitoHealth {
+            dl_executor::jito::JitoHealth::Up
+        }
+        fn submit(
+            &self,
+            _bundle: &dl_executor::bundle::Bundle,
+        ) -> Result<dl_executor::jito::JitoSubmitResult, dl_executor::error::ExecutorError>
+        {
+            Ok(dl_executor::jito::JitoSubmitResult {
+                bundle_id: self.bundle_id.clone(),
+                tip_lamports: self.tip_lamports,
+                submitted_at: 0,
+                tip_account: None,
+            })
+        }
+        fn poll_landing(
+            &self,
+            _bundle_id: &str,
+        ) -> Result<LandingResult, dl_executor::error::ExecutorError> {
+            Ok(LandingResult::Landed { slot: 42 })
+        }
+    }
+
+    /// Build a fully-populated writer `Arc<Mutex<WriterInputs>>`
+    /// with `running = true` (the live cycle is up). Tests
+    /// observe the writer after `submit_opportunity` returns.
+    fn running_writer() -> Arc<Mutex<WriterInputs>> {
+        Arc::new(Mutex::new(WriterInputs {
+            running: true,
+            ..WriterInputs::default()
+        }))
+    }
+
+    /// (1) Day-rollover resets `realized_pnl_today_lamports` to 0.
+    ///
+    /// The issue body says the writer's PnL field must reset at
+    /// UTC midnight "to match `CapState::reset_if_new_day`." We
+    /// pre-load the writer with a stale day index and a non-zero
+    /// PnL; after one Landed bundle the day index rolls over and
+    /// the PnL field drops to 0 + this bundle's realized_proxy
+    /// only.
+    #[test]
+    fn cap_day_rollover_resets_realized_pnl_today_lamports() {
+        let keystore = fresh_keystore();
+        let pool_lookup = |pk: &DlPubkey| Some(dummy_pool(pk.0));
+        let kp = Keypair::new();
+        let ix = solana_sdk::system_instruction::transfer(&kp.pubkey(), &kp.pubkey(), 0);
+        let msg = Message::new(&[ix], Some(&kp.pubkey()));
+        let tx = VersionedTransaction {
+            signatures: vec![],
+            message: VersionedMessage::Legacy(msg),
+        };
+        let jupiter = BypassJupiter { tx_template: tx };
+        // tip_lamports of 7_777 so the realized_proxy is
+        // distinguishable from the stale PnL seed.
+        let jito = ConfigurableJito {
+            bundle_id: "rollover-bundle-1".into(),
+            tip_lamports: 7_777,
+        };
+        let cycle = three_leg_cycle();
+        let cfg = default_live_config(&keystore);
+        let (mut cap, rl, mut ks) = fresh_safety();
+        let metrics = LiveMetrics::new();
+        let writer = running_writer();
+        // Seed: yesterday's PnL is 999_999. The default
+        // `last_pnl_reset_day` is 0 (year-0), so the first
+        // `reset_if_new_day` call inside `submit_opportunity`
+        // will roll over to today and zero the field.
+        writer.lock().unwrap().realized_pnl_today_lamports = 999_999;
+        let before_today = {
+            use chrono::Datelike;
+            let g = writer.lock().unwrap();
+            chrono::Utc::now()
+                .date_naive()
+                .num_days_from_ce()
+        };
+        let _ = before_today; // referenced for the comment only
+
+        let outcome = submit_opportunity(
+            &cycle,
+            &pool_lookup,
+            &jupiter,
+            &jito,
+            &keystore,
+            &cfg,
+            &mut cap,
+            &rl,
+            &mut ks,
+            &metrics,
+            &writer,
+        );
+        assert!(outcome.landed(), "expected Landed, got {:?}", outcome);
+
+        // The day-rollover fires (because `last_pnl_reset_day`
+        // was 0, today is much later), zeroing the field
+        // BEFORE the new bundle's 7_777 is added. Net result
+        // is exactly 7_777, NOT 999_999 + 7_777.
+        let w = writer.lock().unwrap();
+        assert_eq!(
+            w.realized_pnl_today_lamports, 7_777,
+            "day-rollover did not zero the writer PnL before adding the new bundle"
+        );
+    }
+
+    /// (2) Kill-switch open does NOT block the writer.
+    ///
+    /// The acceptance criterion in the DAM-99 body is: "kill-switch
+    /// open does not block the writer." That refers to the WRITER
+    /// SIDE TASK, not the cycle path. The cycle path is correct
+    /// to refuse new bundles when the kill switch is open (the
+    /// `ks.check()` gate in `submit_opportunity` short-circuits
+    /// to `OpportunityOutcome::NotSubmitted("killswitch open")`).
+    /// What must NOT happen is the writer suppressing its tick
+    /// when ks is open — the operator console needs to SEE the
+    /// open state in `live_status.json`, not a missing file.
+    ///
+    /// So this test does NOT call `submit_opportunity`. It
+    /// pre-loads the writer with a populated Landed snapshot
+    /// (as if a bundle had landed just before the kill switch
+    /// tripped), trips the kill switch, and asserts that
+    /// `tick_once` writes a v1 record with `kill_switch.open =
+    /// true` and the previously-landed bundle still visible.
+    #[test]
+    fn kill_switch_open_does_not_block_writer() {
+        let ks_stop = std::env::temp_dir().join(format!(
+            "dl-ks-stop-test-{}-v2.flag",
+            std::process::id()
+        ));
+        std::fs::write(&ks_stop, b"").expect("write ks stop file");
+        let ks = KillSwitch::with_default_stop_file(&ks_stop);
+        // Sanity: ks.check() now returns Err (open).
+        assert!(ks.check().is_err(), "precondition: ks must be open");
+
+        // Pre-load the writer as if a bundle had landed just
+        // before the kill switch tripped.
+        let writer = Arc::new(Mutex::new(WriterInputs {
+            running: true,
+            last_landed: LastLandedSnapshot {
+                bundle_id: Some("pre-trip-bundle".into()),
+                ts_unix_ms: Some(1_700_000_000_000),
+                profit_lamports: Some(500),
+            },
+            realized_pnl_today_lamports: 500,
+            ..WriterInputs::default()
+        }));
+
+        // Build a SharedState and run one tick.
+        let cap = Arc::new(Mutex::new(CapState::new(CapConfig::default())));
+        let state = crate::live_status::SharedState {
+            cap,
+            killswitch: Arc::new(Mutex::new(ks)),
+            inputs: writer.clone(),
+        };
+        let path = std::env::temp_dir().join(format!(
+            "dl-live-status-ks-test-{}.json",
+            std::process::id()
+        ));
+        crate::live_status::tick_once(&path, &state);
+
+        // The file must exist (the writer ticked despite the
+        // open kill switch).
+        assert!(path.exists(), "writer must tick even when kill switch is open");
+        let body = std::fs::read_to_string(&path).expect("read live_status.json");
+        let v: serde_json::Value = serde_json::from_str(&body).expect("parse json");
+        assert_eq!(
+            v["kill_switch"]["open"], true,
+            "writer must surface kill_switch.open=true"
+        );
+        assert_eq!(
+            v["last_landed_bundle"]["bundle_id"], "pre-trip-bundle",
+            "previously-landed bundle must still be visible"
+        );
+        assert_eq!(v["running"], true);
+
+        // Clean up the stop file and the status file so the
+        // test does not pollute the host.
+        let _ = std::fs::remove_file(&ks_stop);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// (3) New bundle overwrites the previous `last_landed_bundle`.
+    ///
+    /// Two consecutive Landed bundles with distinct bundle_ids
+    /// and tip_lamports: the second one must replace the first
+    /// in the writer (the dashboard shows only the most recent
+    /// landing, not a history).
+    #[test]
+    fn new_bundle_overwrites_previous_last_landed() {
+        let keystore = fresh_keystore();
+        let pool_lookup = |pk: &DlPubkey| Some(dummy_pool(pk.0));
+        let kp = Keypair::new();
+        let ix = solana_sdk::system_instruction::transfer(&kp.pubkey(), &kp.pubkey(), 0);
+        let msg = Message::new(&[ix], Some(&kp.pubkey()));
+        let tx = VersionedTransaction {
+            signatures: vec![],
+            message: VersionedMessage::Legacy(msg),
+        };
+        let jupiter = BypassJupiter { tx_template: tx };
+        let cycle = three_leg_cycle();
+        let cfg = default_live_config(&keystore);
+        let (mut cap, rl, mut ks) = fresh_safety();
+        let metrics = LiveMetrics::new();
+        let writer = running_writer();
+
+        // First bundle.
+        let jito1 = ConfigurableJito {
+            bundle_id: "first-bundle".into(),
+            tip_lamports: 100,
+        };
+        let outcome1 = submit_opportunity(
+            &cycle,
+            &pool_lookup,
+            &jupiter,
+            &jito1,
+            &keystore,
+            &cfg,
+            &mut cap,
+            &rl,
+            &mut ks,
+            &metrics,
+            &writer,
+        );
+        assert!(outcome1.landed());
+        {
+            let w = writer.lock().unwrap();
+            assert_eq!(w.last_landed.bundle_id.as_deref(), Some("first-bundle"));
+            assert_eq!(w.last_landed.profit_lamports, Some(100));
+            assert_eq!(w.realized_pnl_today_lamports, 100);
+        }
+
+        // Second bundle — different id, different tip.
+        let jito2 = ConfigurableJito {
+            bundle_id: "second-bundle".into(),
+            tip_lamports: 250,
+        };
+        let outcome2 = submit_opportunity(
+            &cycle,
+            &pool_lookup,
+            &jupiter,
+            &jito2,
+            &keystore,
+            &cfg,
+            &mut cap,
+            &rl,
+            &mut ks,
+            &metrics,
+            &writer,
+        );
+        assert!(outcome2.landed());
+        let w = writer.lock().unwrap();
+        // last_landed is overwritten (not appended).
+        assert_eq!(w.last_landed.bundle_id.as_deref(), Some("second-bundle"));
+        assert_eq!(w.last_landed.profit_lamports, Some(250));
+        // realized_pnl_today_lamports is the SUM (100 + 250).
+        assert_eq!(w.realized_pnl_today_lamports, 350);
     }
 }
