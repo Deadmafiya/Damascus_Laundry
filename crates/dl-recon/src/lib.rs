@@ -26,6 +26,7 @@ pub mod fault;
 pub mod fixture;
 pub mod invariants;
 pub mod onchain;
+pub mod onchain_sweep;
 pub mod pipeline;
 pub mod reconcile;
 
