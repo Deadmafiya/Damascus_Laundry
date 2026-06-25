@@ -1,0 +1,70 @@
+diff --git a/crates/dl-app/src/main.rs b/crates/dl-app/src/main.rs
+index f4a4cc3..234bf6b 100644
+--- a/crates/dl-app/src/main.rs
++++ b/crates/dl-app/src/main.rs
+@@ -1366,7 +1366,7 @@ fn run_live_paper(wallet_path: &str, mode: &dl_signer::ResolvedLiveMode) {
+         }
+ 
+         // THIRD: Whirlpool (653 bytes) and LbPair (variable).
+-        let Some(pool) = decode_pool_update(&pubkey, &data) else {
++        let Some(pool) = decode_pool_update(&pubkey, &data, slot) else {
+             continue;
+         };
+         pools_seen += 1;
+@@ -1389,7 +1389,7 @@ fn run_live_paper(wallet_path: &str, mode: &dl_signer::ResolvedLiveMode) {
+         // Throttled status log every 5s.
+         if last_log.elapsed() >= Duration::from_secs(5) {
+             eprintln!(
+-                "trader: events={events} pools_seen={pools_seen} vault_updates={vault_updates} cycles_evaluated={cycles_evaluated} trades_written={trades_written} balance={} SOL",
++                "trader: events={events} pools_seen={pools_seen} vault_updates={vault_updates} cycles_evaluated={cycles_evaluated} trades_written={trades_written} slot_prunes={slot_prunes} slot_edges_dropped={slot_edges_dropped} balance={} SOL",
+                 wallet.balance_lamports / 1_000_000_000
+             );
+             last_log = std::time::Instant::now();
+@@ -1398,7 +1398,7 @@ fn run_live_paper(wallet_path: &str, mode: &dl_signer::ResolvedLiveMode) {
+ 
+     eprintln!();
+     eprintln!(
+-        "dl-app run: stopped. events={events} pools_seen={pools_seen} vault_updates={vault_updates} cycles_evaluated={cycles_evaluated} trades_written={trades_written}"
++        "dl-app run: stopped. events={events} pools_seen={pools_seen} vault_updates={vault_updates} cycles_evaluated={cycles_evaluated} trades_written={trades_written} slot_prunes={slot_prunes} slot_edges_dropped={slot_edges_dropped}"
+     );
+     eprintln!(
+         "dl-app run: wallet balance = {} lamports ({} SOL)",
+@@ -1646,7 +1646,7 @@ fn append_cycle_jsonl(
+ }
+ 
+ /// Decode an AccountUpdate into a Pool, if possible.
+-fn decode_pool_update(pubkey: &[u8; 32], data: &[u8]) -> Option<Pool> {
++fn decode_pool_update(pubkey: &[u8; 32], data: &[u8], slot: u64) -> Option<Pool> {
+     use dl_state::pool::AmmKind;
+     use dl_state::Pubkey;
+     use dl_state::decoder::{decode_amm_info, decode_whirlpool, decode_lb_pair};
+@@ -1667,7 +1667,10 @@ fn decode_pool_update(pubkey: &[u8; 32], data: &[u8]) -> Option<Pool> {
+             base_reserve: 0,
+             quote_reserve: 0,
+             fee_bps: amm.fee_bps().unwrap_or(30),
+-            last_update_slot: 0,
++            // DAM-54a: stamp the slot the pool was first
++            // observed so `FeedEvent::Slot` prunes can age
++            // it out.
++            last_update_slot: slot,
+             ..Default::default()
+         });
+     }
+@@ -1683,7 +1686,7 @@ fn decode_pool_update(pubkey: &[u8; 32], data: &[u8]) -> Option<Pool> {
+             base_reserve: 0,
+             quote_reserve: 0,
+             fee_bps: 30,
+-            last_update_slot: 0,
++            last_update_slot: slot,
+             ..Default::default()
+         });
+     }
+@@ -1699,7 +1702,7 @@ fn decode_pool_update(pubkey: &[u8; 32], data: &[u8]) -> Option<Pool> {
+             base_reserve: 0,
+             quote_reserve: 0,
+             fee_bps: (lp.bin_step as u16).min(u16::MAX),
+-            last_update_slot: 0,
++            last_update_slot: slot,
+             ..Default::default()
+         });
+     }

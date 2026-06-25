@@ -1,0 +1,63 @@
+diff --git a/crates/dl-app/src/main.rs b/crates/dl-app/src/main.rs
+index f4a4cc3..dcae881 100644
+--- a/crates/dl-app/src/main.rs
++++ b/crates/dl-app/src/main.rs
+@@ -1091,7 +1091,7 @@ fn run_live_paper(wallet_path: &str, mode: &dl_signer::ResolvedLiveMode) {
+                 base_reserve: 0,
+                 quote_reserve: 0,
+                 fee_bps: whirl.fee_rate,
+-                last_update_slot: 0,
++                last_update_slot: slot,
+                 ..Default::default()
+             };
+             pools_seen += 1;
+@@ -1140,7 +1140,7 @@ fn run_live_paper(wallet_path: &str, mode: &dl_signer::ResolvedLiveMode) {
+                     base_reserve: 0,
+                     quote_reserve: 0,
+                     fee_bps: lp.bin_step as u16,
+-                    last_update_slot: 0,
++                    last_update_slot: slot,
+                     ..Default::default()
+                 };
+                 pools_seen += 1;
+@@ -1202,7 +1202,7 @@ fn run_live_paper(wallet_path: &str, mode: &dl_signer::ResolvedLiveMode) {
+                     base_reserve: 0,
+                     quote_reserve: 0,
+                     fee_bps: amm.fee_bps().unwrap_or(30),
+-                    last_update_slot: 0,
++                    last_update_slot: slot,
+                     ..Default::default()
+                 };
+                 pools_seen += 1;
+@@ -1287,6 +1287,11 @@ fn run_live_paper(wallet_path: &str, mode: &dl_signer::ResolvedLiveMode) {
+                             {
+                                 if is_base { pool.base_reserve = new_reserve; }
+                                 else { pool.quote_reserve = new_reserve; }
++                                // DAM-54a: refresh the staleness
++                                // clock on every vault update so a
++                                // pool that still sees vault flow
++                                // does not get pruned.
++                                pool.last_update_slot = slot;
+                                 if pool.base_reserve > 0 && pool.quote_reserve > 0 {
+                                     let cycles = detector.on_pool_update(&pool);
+                                     cycles_evaluated += cycles.len() as u64;
+@@ -1313,6 +1318,9 @@ fn run_live_paper(wallet_path: &str, mode: &dl_signer::ResolvedLiveMode) {
+                             {
+                                 if is_base { pool.base_reserve = new_reserve; }
+                                 else { pool.quote_reserve = new_reserve; }
++                                // DAM-54a: refresh the staleness
++                                // clock on every vault update.
++                                pool.last_update_slot = slot;
+                                 if pool.base_reserve > 0 && pool.quote_reserve > 0 {
+                                     let cycles = detector.on_pool_update(&pool);
+                                     cycles_evaluated += cycles.len() as u64;
+@@ -1339,6 +1347,9 @@ fn run_live_paper(wallet_path: &str, mode: &dl_signer::ResolvedLiveMode) {
+                             {
+                                 if is_base { pool.base_reserve = new_reserve; }
+                                 else { pool.quote_reserve = new_reserve; }
++                                // DAM-54a: refresh the staleness
++                                // clock on every vault update.
++                                pool.last_update_slot = slot;
+                                 if pool.base_reserve > 0 && pool.quote_reserve > 0 {
+                                     let cycles = detector.on_pool_update(&pool);
+                                     cycles_evaluated += cycles.len() as u64;

@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Damascus Laundry — v2.0 Operator Console</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet"/>
+<style>
+/* ─── Design tokens (shared with dashboard/index.html, v1.x) ─────
+   Re-declared here rather than imported so this page renders even
+   when the v1 dashboard is removed/relocated. UI/UX Developer
+   should hoist these to a single tokens.css when hired. */
+:root {
+    --bg: #111319; --shadow-light: #1a1d26; --shadow-dark: #08090c;
+    --text-main: #e1e2ea; --text-muted: #8d909e; --border-subtle: rgba(0,0,0,0.2);
+    --color-primary: #aec6ff; --color-secondary: #42e09a; --color-error: #ffb4ab;
+    --color-error-container: #93000a; --color-warning: #ffb547;
+    --glow-secondary: rgba(66, 224, 154, 0.6);
+    --glow-error: rgba(255, 180, 171, 0.6);
+    --glow-warning: rgba(255, 181, 71, 0.5);
+}
+html.light {
+    --bg: #E0E5EC; --shadow-light: #ffffff; --shadow-dark: #8c98a9;
+    --text-main: #111827; --text-muted: #4b5563; --border-subtle: rgba(0,0,0,0.05);
+    --color-primary: #2563eb; --color-secondary: #059669; --color-error: #dc2626;
+    --color-error-container: #991b1b; --color-warning: #d97706;
+    --glow-secondary: rgba(5, 150, 105, 0.6);
+    --glow-error: rgba(220, 38, 137, 0.6);
+    --glow-warning: rgba(217, 119, 6, 0.5);
+}
+body { background-color: var(--bg); color: var(--text-main); transition: background-color 0.3s ease, color 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease; }
+.neo-surface { background-color: var(--bg); box-shadow: 8px 8px 16px var(--shadow-dark), -8px -8px 16px var(--shadow-light); border-radius: 12px; border: 1px solid var(--border-subtle); transition: background-color 0.3s ease, color 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease; }
+.neo-surface-inset { background-color: var(--bg); box-shadow: inset 6px 6px 12px var(--shadow-dark), inset -6px -6px 12px var(--shadow-light); border-radius: 8px; transition: background-color 0.3s ease, color 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease; }
+.neo-btn { background-color: var(--bg); box-shadow: 4px 4px 8px var(--shadow-dark), -4px -4px 8px var(--shadow-light); border-radius: 6px; transition: all 0.2s cubic-bezier(0.25, 0.8, 0.25, 1); border: 1px solid var(--border-subtle); transform: scale(1); }
+.neo-btn:active, .neo-btn.active { box-shadow: inset 4px 4px 8px var(--shadow-dark), inset -4px -4px 8px var(--shadow-light); transform: scale(0.98); }
+.neo-btn:hover:not(:disabled) { transform: scale(1.02); box-shadow: 6px 6px 12px var(--shadow-dark), -6px -6px 12px var(--shadow-light); }
+.pulse-active { animation: pulse-ring 2s cubic-bezier(0.215, 0.61, 0.355, 1) infinite; }
+@keyframes pulse-ring { 0% { box-shadow: 0 0 0 0 var(--glow-secondary); } 70% { box-shadow: 0 0 0 6px rgba(0,0,0,0); } 100% { box-shadow: 0 0 0 0 rgba(0,0,0,0); } }
+.pulse-warn { animation: pulse-warn-ring 1.4s cubic-bezier(0.215, 0.61, 0.355, 1) infinite; }
+@keyframes pulse-warn-ring { 0% { box-shadow: 0 0 0 0 var(--glow-warning); } 70% { box-shadow: 0 0 0 6px rgba(0,0,0,0); } 100% { box-shadow: 0 0 0 0 rgba(0,0,0,0); } }
+.pulse-error { animation: pulse-error-ring 1.2s cubic-bezier(0.215, 0.61, 0.355, 1) infinite; }
+@keyframes pulse-error-ring { 0% { box-shadow: 0 0 0 0 var(--glow-error); } 70% { box-shadow: 0 0 0 6px rgba(0,0,0,0); } 100% { box-shadow: 0 0 0 0 rgba(0,0,0,0); } }
+.fade-in-up { opacity: 0; animation: fadeInUp 0.5s ease-out forwards; }
+@keyframes fadeInUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+.delay-100 { animation-delay: 100ms; } .delay-200 { animation-delay: 200ms; }
+.delay-300 { animation-delay: 300ms; } .delay-400 { animation-delay: 400ms; }
+.delay-500 { animation-delay: 500ms; } .delay-600 { animation-delay: 600ms; }
+.number-flash { animation: numberFlash 0.5s ease-out; }
+@keyframes numberFlash { 0% { color: var(--color-secondary); text-shadow: 0 0 8px var(--glow-secondary); } 100% { color: inherit; text-shadow: none; } }
+.text-on-surface { color: var(--text-main); } .text-on-surface-variant { color: var(--text-muted); }
+.font-body-md { font-family: "Inter", sans-serif; } .font-mono-data { font-family: "JetBrains Mono", monospace; }
+
+/* Live-mode-specific helpers. */
+.kill-pill-ok    { background: var(--color-secondary); color: #06231a; box-shadow: 0 0 10px var(--glow-secondary); }
+.kill-pill-open  { background: var(--color-error);   color: #1a0606; box-shadow: 0 0 12px var(--glow-error); }
+.kill-pill-degraded { background: var(--color-warning); color: #1a1006; box-shadow: 0 0 10px var(--glow-warning); }
+.cap-bar-track   { background: var(--bg); box-shadow: inset 4px 4px 8px var(--shadow-dark), inset -4px -4px 8px var(--shadow-light); }
+.cap-bar-fill    { background: var(--color-secondary); box-shadow: 0 0 10px var(--glow-secondary); transition: width 0.4s ease; }
+.cap-bar-fill-warn { background: var(--color-warning); box-shadow: 0 0 10px var(--glow-warning); }
+.cap-bar-fill-err  { background: var(--color-error);   box-shadow: 0 0 10px var(--glow-error);   }
+.bundle-id-link  { color: var(--color-primary); text-decoration: underline dotted; }
+
+/* ─── DAM-106 advisor IA helpers ─────────────────────────────────
+   Three regions, no tabs, no Prometheus noise. Visual treatment
+   is intentionally bare — UX Designer owns the polished tokens. */
+.region-label {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+.next-action-sentence {
+    font-family: "Inter", sans-serif;
+    font-size: 22px;
+    line-height: 32px;
+    font-weight: 600;
+    color: var(--text-main);
+}
+.next-action-sentence .accent { color: var(--color-primary); }
+.next-action-sentence .accent-warn { color: var(--color-warning); }
+.next-action-sentence .accent-err  { color: var(--color-error); }
+.next-action-sentence .accent-ok   { color: var(--color-secondary); }
+.recent-row {
+    display: grid;
+    grid-template-columns: 96px 1fr 92px 92px 84px;
+    gap: 16px;
+    align-items: baseline;
+    padding: 8px 12px;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 12px;
+    border-bottom: 1px dashed rgba(255,255,255,0.04);
+}
+.recent-row.head { color: var(--text-muted); font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; font-size: 10px; border-bottom-style: solid; }
+.recent-row .pair { color: var(--text-main); font-weight: 600; }
+.recent-row .pnl-pos { color: var(--color-secondary); }
+.recent-row .pnl-neg { color: var(--color-error); }
+.recent-row .status-landed { color: var(--color-secondary); }
+.recent-row .status-failed { color: var(--color-error); }
+.recent-row .status-pending { color: var(--text-muted); }
+</style>
+</head>
+<body class="font-body-md h-screen w-full overflow-y-auto flex flex-col antialiased">
+
+<header class="fixed top-0 w-full z-50 flex justify-between items-center px-6 h-16 neo-surface fade-in-up" style="border-radius: 0; box-shadow: 0 4px 8px var(--shadow-dark);">
+<div class="flex items-center gap-4">
+    <a href="/" class="font-mono-data text-base font-bold tracking-tighter" style="color: var(--color-primary); text-decoration: none;">damascus_laundry</a>
+    <span class="text-on-surface-variant font-mono-data text-[10px] px-2 py-0.5 neo-surface-inset">v2.0 ADVISOR</span>
+</div>
+<div class="flex items-center gap-3 text-sm text-on-surface-variant px-4 py-2 neo-surface-inset">
+    <div id="conn-dot" class="w-2 h-2 rounded-full" style="background: var(--text-muted);"></div>
+    <span class="font-mono-data" id="conn-text">connecting…</span>
+    <span class="w-px h-4 bg-outline opacity-30"></span>
+    <span class="font-mono-data flex items-center gap-1" id="poll-age" title="Seconds since the last successful /api/live response.">
+        <span class="material-symbols-outlined" style="font-size:14px;">sync</span>
+        <span id="poll-age-val">— s</span>
+    </span>
+</div>
+<div class="flex items-center gap-3">
+    <a href="/" class="text-on-surface-variant px-4 py-1.5 font-medium text-base neo-btn" id="btn-paper" style="text-decoration: none;">Paper Trader v1</a>
+    <button class="text-on-surface-variant hover:text-on-surface neo-btn p-2 rounded-full" id="btn-refresh" title="Refresh now">
+        <span class="material-symbols-outlined text-[18px]">sync</span>
+    </button>
+    <button class="text-on-surface-variant hover:text-on-surface neo-btn p-2 rounded-full ml-2" id="theme-toggle">
+        <span class="material-symbols-outlined text-[18px] dark:hidden">dark_mode</span>
+        <span class="material-symbols-outlined text-[18px] hidden dark:block">light_mode</span>
+    </button>
+</div>
+</header>
+
+<!--
+  ─── DAM-106 ADVISOR IA — three regions, no tabs ─────────────────
+  Source: docs/v2.0-operator-runbook-review.md §"IA proposal"
+  Owner: Frontend Programmer. Visual layer owned by UX Designer.
+
+  Region 1. STATE (top, always visible). Big numbers only —
+           PnL, cap bar, bundles landed, consecutive losses,
+           last action ts. No Prometheus noise.
+  Region 2. RECENT HISTORY (middle, scrollable). Last 50 bundles.
+  Region 3. NEXT ACTION (bottom). One opinionated sentence.
+-->
+<main class="flex-1 mt-16 px-6 py-8 flex flex-col gap-6">
+
+  <!-- Region 1: STATE (col-span-12, 4 tiles, advisor-set) -->
+  <section class="neo-surface p-5 fade-in-up delay-100" id="region-state" aria-label="State">
+    <div class="flex items-center justify-between mb-4">
+      <span class="region-label">1 · State</span>
+      <span class="font-mono-data text-on-surface-variant" style="font-size:11px;" id="status-ts">—</span>
+    </div>
+    <div class="grid grid-cols-12 gap-6">
+
+      <!-- 1a. PnL today (signed SOL, color-coded) — biggest tile -->
+      <div class="col-span-5 neo-surface-inset p-4">
+        <div class="region-label">PnL today (UTC)</div>
+        <div class="font-mono-data mt-1" style="font-size:36px; line-height:44px; font-weight:700;" id="pnl-sol">— SOL</div>
+        <div class="font-mono-data text-on-surface-variant mt-1" style="font-size:12px;" id="pnl-lamports">— lamports</div>
+        <div class="font-mono-data text-on-surface-variant" style="font-size:11px;" id="pnl-bundles">— bundles settled</div>
+      </div>
+
+      <!-- 1b. Cap used / cap daily (with bar) — operator's eye lands here first -->
+      <div class="col-span-4 neo-surface-inset p-4">
+        <div class="flex justify-between items-baseline mb-2">
+          <span class="region-label">Cap used / daily</span>
+          <span class="font-mono-data text-on-surface-variant" style="font-size:11px;" id="cap-pct-label">0.0%</span>
+        </div>
+        <div class="font-mono-data mb-3" style="font-size:22px; font-weight:600;">
+          <span id="cap-spent">—</span>
+          <span class="text-on-surface-variant" style="font-size:14px;"> / </span>
+          <span id="cap-total">—</span>
+          <span class="text-on-surface-variant" style="font-size:12px;"> SOL</span>
+        </div>
+        <div class="cap-bar-track rounded-full h-3 overflow-hidden">
+          <div class="cap-bar-fill h-full" id="cap-bar" style="width:0%;"></div>
+        </div>
+      </div>
+
+      <!-- 1c. Bundles landed (last 24h) + consecutive losses (paired) -->
+      <div class="col-span-3 grid grid-rows-2 gap-3">
+        <div class="neo-surface-inset p-3">
+          <div class="region-label">Bundles landed (24h)</div>
+          <div class="font-mono-data mt-1" style="font-size:24px; line-height:30px; font-weight:600;" id="bundles-24h">—</div>
+        </div>
+        <div class="neo-surface-inset p-3">
+          <div class="region-label">Consec. losses</div>
+          <div class="font-mono-data mt-1" style="font-size:24px; line-height:30px; font-weight:600;" id="consec-losses">—</div>
+        </div>
+      </div>
+
+      <!-- 1d. Last action timestamp + kill switch pill (paired, second row) -->
+      <div class="col-span-7 neo-surface-inset p-3 flex items-center gap-4">
+        <span class="region-label">Last action</span>
+        <span class="font-mono-data" style="font-size:14px; font-weight:600;" id="last-action">—</span>
+        <span class="flex-1"></span>
+        <span class="region-label">Kill switch</span>
+        <span class="px-3 py-1 rounded-full font-mono-data uppercase text-[11px] font-bold" id="kill-pill" style="background: var(--text-muted); color: var(--bg);">—</span>
+        <span class="font-mono-data" style="font-size:14px; font-weight:600;" id="kill-state">—</span>
+      </div>
+
+      <!-- 1e. Backend liveness pill (NO prometheus noise: no build, git, uptime, ws-reconnect count) -->
+      <div class="col-span-5 neo-surface-inset p-3 flex items-center gap-3">
+        <span class="material-symbols-outlined text-[18px]" id="status-icon" style="color: var(--text-muted);">help</span>
+        <span class="font-mono-data" style="font-size:13px; font-weight:600;" id="status-line">waiting for dl-app…</span>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- Region 2: RECENT HISTORY (middle, scrollable, last 50 bundles) -->
+  <section class="neo-surface p-5 fade-in-up delay-200 flex-1 min-h-0 flex flex-col" id="region-history" aria-label="Recent history">
+    <div class="flex items-center justify-between mb-3">
+      <span class="region-label">2 · Recent history · last 50 bundles</span>
+      <span class="font-mono-data text-on-surface-variant" style="font-size:11px;" id="history-count">0 shown</span>
+    </div>
+    <div class="recent-row head" aria-hidden="true">
+      <span>time</span><span>pair</span><span>pred. e_pnl</span><span>realized</span><span>status</span>
+    </div>
+    <div class="overflow-y-auto flex-1" id="history-list" style="min-height:0;">
+      <!-- rows injected by paint(); degraded state = "no signal" -->
+    </div>
+  </section>
+
+  <!-- Region 3: NEXT ACTION (bottom, one opinionated sentence) -->
+  <section class="neo-surface p-5 fade-in-up delay-300" id="region-action" aria-label="Next action">
+    <div class="flex items-center justify-between mb-3">
+      <span class="region-label">3 · Next action</span>
+      <span class="font-mono-data text-on-surface-variant" style="font-size:11px;" id="next-action-id">—</span>
+    </div>
+    <div class="next-action-sentence" id="next-action-sentence">
+      <span class="accent-warn">Decide:</span> waiting for dl-app to emit a next-action decision…
+    </div>
+    <div class="font-mono-data text-on-surface-variant mt-2" style="font-size:11px;" id="next-action-rationale">
+      Decision logic is owned by Backend Programmer (DAM-40 P0-3).
+    </div>
+  </section>
+
+</main>
+
+<footer class="fixed bottom-0 w-full z-50 flex justify-between items-center px-6 py-1 h-10 neo-surface fade-in-up delay-600" style="border-radius: 0; box-shadow: 0 -4px 8px var(--shadow-dark);">
+<div class="text-on-surface-variant truncate max-w-2xl" style="font-size: 11px;" id="footer-explainer">
+    Polling <code>/api/live</code> at 1 Hz. Source: <code>./live_status.json</code> written by <code>dl-app</code>. IA per DAM-106.
+</div>
+<div class="flex items-center gap-4 font-mono-data" style="font-size: 11px; color: var(--text-muted);">
+    <span id="footer-poll">1 Hz</span>
+    <span class="text-on-surface-variant">v2.0 operator console · advisor IA</span>
+</div>
+</footer>
+
+<script>
+"use strict";
+const API = "";  // same-origin
+
+// ─── Element refs (3 regions, no legacy 5-field card grid) ────────
+const els = {
+    // Region 1: State
+    statusIcon:  document.getElementById('status-icon'),
+    statusLine:  document.getElementById('status-line'),
+    statusTs:    document.getElementById('status-ts'),
+    pnlSol:      document.getElementById('pnl-sol'),
+    pnlLamports: document.getElementById('pnl-lamports'),
+    pnlBundles:  document.getElementById('pnl-bundles'),
+    capSpent:    document.getElementById('cap-spent'),
+    capTotal:    document.getElementById('cap-total'),
+    capPct:      document.getElementById('cap-pct-label'),
+    capBar:      document.getElementById('cap-bar'),
+    bundles24h:  document.getElementById('bundles-24h'),
+    consecLosses:document.getElementById('consec-losses'),
+    lastAction:  document.getElementById('last-action'),
+    killPill:    document.getElementById('kill-pill'),
+    killState:   document.getElementById('kill-state'),
+    // Region 2: Recent history
+    historyList: document.getElementById('history-list'),
+    historyCount:document.getElementById('history-count'),
+    // Region 3: Next action
+    nextActionId:        document.getElementById('next-action-id'),
+    nextActionSentence:  document.getElementById('next-action-sentence'),
+    nextActionRationale: document.getElementById('next-action-rationale'),
+    // Header
+    connDot:  document.getElementById('conn-dot'),
+    connText: document.getElementById('conn-text'),
+    pollAge:  document.getElementById('poll-age-val'),
+};
+
+let lastSnapshot = null;
+let lastSuccessAtMs = 0;
+
+function fmtLamports(l) {
+    if (l == null) return '—';
+    return (l >= 0 ? '' : '−') + Math.abs(l).toLocaleString('en-US');
+}
+function fmtSol9(s) {
+    if (s == null) return '—';
+    return (s >= 0 ? '+' : '−') + Math.abs(s).toFixed(9) + ' SOL';
+}
+function fmtSolSimple(s) {
+    if (s == null) return '—';
+    return (s >= 0 ? '' : '−') + Math.abs(s).toFixed(6) + ' SOL';
+}
+function fmtAge(secs) {
+    if (secs == null) return '—';
+    if (secs < 60) return `${secs}s ago`;
+    if (secs < 3600) return `${Math.floor(secs/60)}m ${secs%60}s ago`;
+    if (secs < 86400) return `${Math.floor(secs/3600)}h ${Math.floor((secs%3600)/60)}m ago`;
+    return `${Math.floor(secs/86400)}d ago`;
+}
+function fmtPair(b) {
+    // Pair label normalization: backend may emit "SOL/USDC", "SOL-USDC", or
+    // {base,quote} struct. Fall back to raw id.
+    if (b.pair) return b.pair;
+    if (b.base && b.quote) return `${b.base}/${b.quote}`;
+    if (b.pair_id) return b.pair_id;
+    return '—';
+}
+function flash(el) {
+    if (!el) return;
+    el.classList.remove('number-flash');
+    void el.offsetWidth;
+    el.classList.add('number-flash');
+}
+function setText(el, value) {
+    if (!el) return;
+    const v = (value == null) ? '—' : String(value);
+    if (el.textContent !== v) {
+        el.textContent = v;
+        flash(el);
+    }
+}
+function escapeHtml(s) {
+    if (s == null) return '';
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// ─── Degraded render — Domain Lens #5 (every fetch has 3 outcomes) ──
+function paintDegraded(snap) {
+    els.statusIcon.textContent = 'cloud_off';
+    els.statusIcon.style.color = 'var(--color-warning)';
+    els.statusLine.textContent = 'dl-app is not emitting live_status.json';
+    els.statusLine.style.color = 'var(--color-warning)';
+    els.statusTs.textContent = 'last try: ' + new Date(snap.ts || Date.now()).toISOString().substring(11,19) + ' UTC';
+
+    els.connDot.style.background = 'var(--color-warning)';
+    els.connDot.classList.add('pulse-warn');
+    els.connText.textContent = 'degraded — ' + (snap.reason || 'offline');
+
+    // State region
+    els.pnlSol.textContent = '— SOL';
+    els.pnlSol.style.color = '';
+    els.pnlLamports.textContent = '— lamports';
+    els.pnlBundles.textContent = '— bundles settled';
+    els.capSpent.textContent = '—';
+    els.capTotal.textContent = '—';
+    els.capPct.textContent = '— %';
+    els.capBar.style.width = '0%';
+    els.capBar.className = 'cap-bar-fill h-full';
+    els.bundles24h.textContent = '—';
+    els.consecLosses.textContent = '—';
+    els.lastAction.textContent = '—';
+    els.killPill.className = 'px-3 py-1 rounded-full font-mono-data uppercase text-[11px] font-bold kill-pill-degraded';
+    els.killPill.textContent = 'OFFLINE';
+    els.killState.textContent = 'no signal';
+
+    // History region — single explicit row, not a blank
+    els.historyList.innerHTML = '';
+    const row = document.createElement('div');
+    row.className = 'recent-row';
+    row.innerHTML = '<span class="text-on-surface-variant">—</span><span class="text-on-surface-variant">no bundles — backend offline</span><span></span><span></span><span></span>';
+    els.historyList.appendChild(row);
+    els.historyCount.textContent = '0 shown';
+
+    // Next action — tell the operator this is the only honest answer
+    els.nextActionId.textContent = 'advisor.backend_offline';
+    els.nextActionSentence.innerHTML =
+        '<span class="accent-warn">Restore backend:</span> dl-app is not emitting live_status.json — confirm the bot process is running (see v2.0 runbook §1).';
+    els.nextActionRationale.textContent = 'Reason: ' + (snap.reason || 'unknown') + '. No trading data is observable.';
+}
+
+// ─── Region 2: render the recent-bundles list (last 50, one row each) ─
+function paintHistory(rows) {
+    els.historyList.innerHTML = '';
+    if (!rows || rows.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'recent-row';
+        empty.innerHTML = '<span class="text-on-surface-variant">—</span><span class="text-on-surface-variant">no bundles yet today</span><span></span><span></span><span></span>';
+        els.historyList.appendChild(empty);
+        els.historyCount.textContent = '0 shown';
+        return;
+    }
+    // Cap to 50 per spec; backend may already truncate, but defend.
+    const capped = rows.slice(0, 50);
+    for (const b of capped) {
+        const row = document.createElement('div');
+        row.className = 'recent-row';
+        // Click-to-expand hook — DOM hook for Phase 2 click-for-full-diff UX.
+        // Backend will need to expose full bundle diff (per docs/recon/recon-json-schema.md);
+        // for now we surface the same row data on click.
+        row.style.cursor = 'pointer';
+        row.title = 'Click for bundle details (Phase 2: full diff)';
+        row.addEventListener('click', () => {
+            // Phase 2 handoff: replace with modal/drawer that fetches
+            // docs/recon/bundles/<bundle_id>.json per docs/recon/recon-json-schema.md
+            window.open('https://explorer.jito.wtf/bundle/' + encodeURIComponent(b.bundle_id || b.id || ''), '_blank', 'noopener');
+        });
+
+        // time | pair | predicted e_pnl | realized | status
+        const t = b.ts_unix_ms ? fmtAge(Math.max(0, Math.floor((Date.now() - b.ts_unix_ms) / 1000))) : '—';
+        const pair = fmtPair(b);
+        const pred = (b.predicted_epnl_sol != null) ? fmtSolSimple(b.predicted_epnl_sol) : '—';
+        const realized = (b.realized_pnl_sol != null)
+            ? `<span class="${b.realized_pnl_sol >= 0 ? 'pnl-pos' : 'pnl-neg'}">${fmtSolSimple(b.realized_pnl_sol)}</span>`
+            : '—';
+        const status = (b.status || 'pending').toLowerCase();
+        const statusCls = status === 'landed' ? 'status-landed'
+                        : status === 'failed' ? 'status-failed'
+                        : 'status-pending';
+
+        row.innerHTML =
+            `<span>${escapeHtml(t)}</span>` +
+            `<span class="pair">${escapeHtml(pair)}</span>` +
+            `<span>${escapeHtml(pred)}</span>` +
+            `<span>${realized}</span>` +
+            `<span class="${statusCls}">${escapeHtml(status)}</span>`;
+        els.historyList.appendChild(row);
+    }
+    els.historyCount.textContent = `${capped.length} shown`;
+}
+
+// ─── Region 3: render the single opinionated next-action sentence ──
+// The decision logic is owned by Backend Programmer (DAM-40 P0-3);
+// this renderer trusts the `next_action` field it emits and never
+// tries to out-think the backend.
+function paintNextAction(na) {
+    if (!na || !na.id) {
+        // Backend hasn't populated the field yet (DAM-40 P0-3 still pending).
+        // Render a "not yet wired" placeholder, not a fake decision.
+        els.nextActionId.textContent = 'advisor.not_yet_wired';
+        els.nextActionSentence.innerHTML =
+            '<span class="accent-warn">Pending:</span> the advisor decision field is not yet wired into live_status.json (Backend Programmer owns DAM-40 P0-3).';
+        els.nextActionRationale.textContent = 'IA + layout shipped (DAM-106); backend producer is the unblock.';
+        return;
+    }
+    els.nextActionId.textContent = 'advisor.' + na.id;
+    // Severity → accent class (UX Designer will own final palette).
+    const accent = na.severity === 'error'   ? 'accent-err'
+                : na.severity === 'warning' ? 'accent-warn'
+                : na.severity === 'ok'      ? 'accent-ok'
+                : 'accent';
+    const label = (na.severity === 'error')   ? 'Critical:'
+              : (na.severity === 'warning') ? 'Decide:'
+              : (na.severity === 'ok')      ? 'All clear.'
+              : 'Next:';
+    els.nextActionSentence.innerHTML =
+        `<span class="${accent}">${escapeHtml(label)}</span> ${escapeHtml(na.sentence || '—')}`;
+    let r = 'id=' + na.id + ' · severity=' + (na.severity || '—');
+    if (na.action_ref) r += ' · see ' + na.action_ref;
+    els.nextActionRationale.textContent = r;
+}
+
+// ─── Region 1: paint state tiles from a healthy snapshot ──────────
+function paintState(snap) {
+    const ok = !!snap.running;
+    if (ok) {
+        els.statusIcon.textContent = 'check_circle';
+        els.statusIcon.style.color = 'var(--color-secondary)';
+        els.statusLine.textContent = 'live — dl-app running';
+        els.statusLine.style.color = '';
+    } else {
+        els.statusIcon.textContent = 'pause_circle';
+        els.statusIcon.style.color = 'var(--text-muted)';
+        els.statusLine.textContent = 'stopped';
+        els.statusLine.style.color = '';
+    }
+    els.statusTs.textContent = 'snapshot @ ' + new Date(snap.ts).toISOString().substring(11,19) + ' UTC';
+
+    // PnL
+    const pnlSol = snap.realized_pnl_today_sol || 0;
+    const pnlLamports = snap.realized_pnl_today_lamports || 0;
+    const pnlColor = pnlLamports >= 0 ? 'var(--color-secondary)' : 'var(--color-error)';
+    const pnlStr = fmtSol9(pnlSol);
+    if (els.pnlSol.textContent !== pnlStr) {
+        els.pnlSol.textContent = pnlStr;
+        els.pnlSol.style.color = pnlColor;
+        flash(els.pnlSol);
+    }
+    els.pnlLamports.textContent = fmtLamports(pnlLamports) + ' lamports';
+    els.pnlLamports.style.color = pnlColor;
+    els.pnlBundles.textContent = (snap.bundles_settled_today != null)
+        ? snap.bundles_settled_today + ' bundles settled today'
+        : '— bundles settled';
+
+    // Cap bar
+    const cap = snap.daily_cap_lamports || 0;
+    const spent = snap.daily_spent_lamports || 0;
+    const pct = (snap.daily_spent_pct || (cap > 0 ? spent / cap * 100 : 0));
+    setText(els.capSpent, fmtSolSimple(spent / 1e9));
+    setText(els.capTotal, fmtSolSimple(cap / 1e9));
+    setText(els.capPct, pct.toFixed(1) + '%');
+    const pctNum = cap > 0 ? Math.min(100, spent / cap * 100) : 0;
+    els.capBar.style.width = pctNum.toFixed(1) + '%';
+    els.capBar.className = pctNum >= 95 ? 'cap-bar-fill-err h-full'
+                         : pctNum >= 80 ? 'cap-bar-fill-warn h-full'
+                         : 'cap-bar-fill h-full';
+
+    // Bundles 24h + consecutive losses
+    setText(els.bundles24h, snap.bundles_landed_24h != null ? snap.bundles_landed_24h : '—');
+    const ks = snap.kill_switch || {};
+    setText(els.consecLosses,
+        ks.consecutive_losses != null
+            ? `${ks.consecutive_losses} / ${ks.max_consecutive_losses || '—'}`
+            : '—');
+
+    // Last action timestamp (operator's "is the bot doing anything?" eye)
+    if (snap.last_action_ts_unix_ms) {
+        const ageS = Math.max(0, Math.floor((Date.now() - snap.last_action_ts_unix_ms) / 1000));
+        els.lastAction.textContent = fmtAge(ageS) + ' · ' + (snap.last_action_label || snap.last_action_kind || '—');
+    } else if (snap.last_landed_at_unix_ms) {
+        const ageS = Math.max(0, Math.floor((Date.now() - snap.last_landed_at_unix_ms) / 1000));
+        els.lastAction.textContent = fmtAge(ageS) + ' · last landed bundle';
+    } else {
+        els.lastAction.textContent = '—';
+    }
+
+    // Kill switch pill (kept loud; advisor is read-mostly)
+    const ksOpen = !!ks.open;
+    if (ksOpen) {
+        els.killPill.className = 'px-3 py-1 rounded-full font-mono-data uppercase text-[11px] font-bold kill-pill-open pulse-error';
+        els.killPill.textContent = 'OPEN';
+        els.killState.textContent = 'submitting halted';
+    } else if (ks.consecutive_losses != null && ks.max_consecutive_losses != null
+               && ks.consecutive_losses >= ks.max_consecutive_losses) {
+        els.killPill.className = 'px-3 py-1 rounded-full font-mono-data uppercase text-[11px] font-bold kill-pill-degraded';
+        els.killPill.textContent = 'ARMED — AT LIMIT';
+        els.killState.textContent = `${ks.consecutive_losses} consecutive losses`;
+    } else {
+        els.killPill.className = 'px-3 py-1 rounded-full font-mono-data uppercase text-[11px] font-bold kill-pill-ok';
+        els.killPill.textContent = 'CLOSED';
+        els.killState.textContent = 'armed — submitting';
+    }
+}
+
+function paint(snap) {
+    if (!snap) return;
+    lastSnapshot = snap;
+    lastSuccessAtMs = Date.now();
+    if (!snap.ok) {
+        paintDegraded(snap);
+        return;
+    }
+    // Healthy path
+    els.connDot.style.background = 'var(--color-secondary)';
+    els.connDot.classList.remove('pulse-warn', 'pulse-error');
+    els.connDot.classList.add('pulse-active');
+    els.connText.textContent = 'connected';
+
+    paintState(snap);
+    paintHistory(snap.recent_bundles || []);
+    paintNextAction(snap.next_action);
+}
+
+async function refresh() {
+    try {
+        const r = await fetch(API + '/api/live', { cache: 'no-store' });
+        if (!r.ok) throw new Error('/api/live -> ' + r.status);
+        const snap = await r.json();
+        paint(snap);
+    } catch (e) {
+        // Transport failure — show last-known state with red dot so the
+        // operator can tell the screen is not the bot. We do NOT blank
+        // the screen (Domain Lens #5).
+        els.connDot.style.background = 'var(--color-error)';
+        els.connDot.classList.remove('pulse-active', 'pulse-warn');
+        els.connDot.classList.add('pulse-error');
+        els.connText.textContent = 'transport error';
+    }
+}
+
+function tickAge() {
+    if (lastSuccessAtMs > 0) {
+        const secs = Math.max(0, Math.floor((Date.now() - lastSuccessAtMs) / 1000));
+        els.pollAge.textContent = secs + ' s';
+    } else {
+        els.pollAge.textContent = '— s';
+    }
+}
+
+// Buttons
+document.getElementById('theme-toggle').addEventListener('click', () => {
+    document.documentElement.classList.toggle('dark');
+    document.documentElement.classList.toggle('light');
+});
+document.getElementById('btn-refresh').addEventListener('click', refresh);
+
+// Initial fetch + 1 Hz polling per DAM-72 acceptance.
+refresh();
+setInterval(refresh, 1000);
+setInterval(tickAge, 250);
+</script>
+</body></html>

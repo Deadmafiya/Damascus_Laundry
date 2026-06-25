@@ -32,6 +32,28 @@ PID = REPO / "trader.pid"
 LOG = REPO / "trader.log"
 SCRIPTS = REPO / "scripts"
 
+# v2.0 live-mode operator console (DAM-72). The dashboard reads the
+# JSON that dl-app writes atomically at 1 Hz from `dl-app::live_status`
+# (DAM-82). Path is the same as the writer's default: `./live_status.json`
+# in the launcher's repo. Never raises — a missing file is a normal
+# paper-mode startup condition, the dashboard renders OFFLINE.
+LIVE_STATUS = REPO / "live_status.json"
+
+
+def _read_live_status():
+    """Read live_status.json. Returns (dict, status_str). status_str
+    is one of: 'ok', 'missing', 'malformed'. Never raises."""
+    if not LIVE_STATUS.exists():
+        return None, "missing"
+    try:
+        with LIVE_STATUS.open() as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            return None, "malformed"
+        return data, "ok"
+    except (OSError, ValueError):
+        return None, "malformed"
+
 # Submission-to-landing latency probe. The probe sends real
 # sendTransaction + getSignatureStatuses calls every probe_interval_s
 # and times the round-trip — the network leg of submit-to-confirm,
@@ -164,6 +186,179 @@ def api_snapshot():
     }
 
 
+def api_live_snapshot():
+    """Build the /api/live payload for the v2.0 operator console (DAM-72).
+
+    Reads ./live_status.json (REPO / live_status.json) which dl-app writes
+    at 1 Hz per DAM-82 contract v1. Returns a shape dashboard/live.html
+    already understands:
+
+        {
+          ok: bool,                     # false → render the OFFLINE banner
+          reason: str,                  # human-readable reason when !ok
+          ts: int,                      # ms epoch; when the snapshot was built
+          running: bool,                # bot is running
+          daily_cap_lamports: int,
+          daily_spent_lamports: int,
+          daily_spent_pct: float,       # 0..100
+          kill_switch: {open, stop_file_present,
+                        consecutive_losses, max_consecutive_losses, reason},
+          last_landed_bundle_id: str|null,
+          last_landed_at_unix_ms: int|null,
+          last_landed_profit_lamports: int|null,
+          realized_pnl_today_lamports: int,
+          realized_pnl_today_sol: float,
+          realized_pnl_today_usd: float|null,
+          sol_usd: float|null,
+          sol_usd_source: str,          # 'pyth' | 'coinbase-fallback' | 'none'
+          sol_usd_age_secs: int|null,
+          contract: {schema_version, ts_unix_ms, fields_present: [str],
+                     fields_missing: [str]},
+        }
+
+    Never raises. States handled (see DAM-82 acceptance):
+      - 'missing'   — no file: ok=false, reason='live_status missing'
+      - 'malformed' — bad JSON / not a dict: ok=false, reason='live_status malformed'
+      - 'mismatch'  — wrong schema_version: ok=false, reason='schema_mismatch:N'
+      - 'valid'     — all 11 contract fields present
+      - 'valid_partial' — at least one field present, some missing
+    """
+    raw, live_state = _read_live_status()
+    now_ms = int(time.time() * 1000)
+    if raw is None:
+        # Missing or malformed at the JSON layer. Render the OFFLINE
+        # banner (Domain Lens #5: blank screen is a bug). The HTML
+        # falls back to a '—' render for every field.
+        return {
+            "ok": False,
+            "reason": "live_status " + live_state,  # 'missing' or 'malformed'
+            "ts": now_ms,
+            "running": False,
+            "daily_cap_lamports": 0,
+            "daily_spent_lamports": 0,
+            "daily_spent_pct": 0.0,
+            "kill_switch": {
+                "open": False,
+                "stop_file_present": False,
+                "consecutive_losses": None,
+                "max_consecutive_losses": None,
+                "reason": None,
+            },
+            "last_landed_bundle_id": None,
+            "last_landed_at_unix_ms": None,
+            "last_landed_profit_lamports": None,
+            "realized_pnl_today_lamports": 0,
+            "realized_pnl_today_sol": 0.0,
+            "realized_pnl_today_usd": None,
+            "sol_usd": None,
+            "sol_usd_source": "none",
+            "sol_usd_age_secs": None,
+            "contract": {
+                "schema_version": None,
+                "ts_unix_ms": None,
+                "fields_present": [],
+                "fields_missing": ["(file " + live_state + ")"],
+            },
+        }
+
+    # Schema-version check. DAM-82 says v1 is the contract; if the bot
+    # starts emitting v2 we don't silently mis-render — the dashboard
+    # shows the OFFLINE banner with a reason that names the version
+    # it saw, so the operator notices and we bump the consumer.
+    sv = raw.get("schema_version")
+    if sv != 1:
+        return {
+            "ok": False,
+            "reason": "schema_mismatch:" + str(sv),
+            "ts": now_ms,
+            "running": False,
+            "daily_cap_lamports": 0,
+            "daily_spent_lamports": 0,
+            "daily_spent_pct": 0.0,
+            "kill_switch": {
+                "open": False,
+                "stop_file_present": False,
+                "consecutive_losses": None,
+                "max_consecutive_losses": None,
+                "reason": None,
+            },
+            "last_landed_bundle_id": None,
+            "last_landed_at_unix_ms": None,
+            "last_landed_profit_lamports": None,
+            "realized_pnl_today_lamports": 0,
+            "realized_pnl_today_sol": 0.0,
+            "realized_pnl_today_usd": None,
+            "sol_usd": None,
+            "sol_usd_source": "none",
+            "sol_usd_age_secs": None,
+            "contract": {
+                "schema_version": sv,
+                "ts_unix_ms": raw.get("ts_unix_ms"),
+                "fields_present": [],
+                "fields_missing": ["(schema_mismatch)"],
+            },
+        }
+
+    # Track field presence so the operator can spot a partial contract
+    # at a glance (e.g. DAM-42 leaves sol_usd null). The JS ignores
+    # this — it's a debugging affordance, available in the JSON.
+    expected_fields = [
+        "ts_unix_ms", "running", "daily_cap_lamports", "daily_spent_lamports",
+        "kill_switch", "last_landed_bundle", "realized_pnl_today_lamports",
+        "sol_usd", "sol_usd_source", "sol_usd_age_secs",
+    ]
+    fields_present = [f for f in expected_fields if f in raw]
+    fields_missing = [f for f in expected_fields if f not in raw]
+
+    cap = int(raw.get("daily_cap_lamports", 0) or 0)
+    spent = int(raw.get("daily_spent_lamports", 0) or 0)
+    spent_pct = (spent / cap * 100.0) if cap > 0 else 0.0
+    ks = raw.get("kill_switch") or {}
+    llb = raw.get("last_landed_bundle") or {}
+    pnl_lamports = int(raw.get("realized_pnl_today_lamports", 0) or 0)
+    pnl_sol = lamports_to_sol(pnl_lamports)
+    sol_usd_src = raw.get("sol_usd_source") or "none"
+    # Frontend never calls a price API directly (it would race the bot's
+    # own Pyth feed and the operator would see two different numbers).
+    # We use the value dl-app publishes; the launcher does not
+    # backfill with Coinbase. If the field is null, render '—'.
+    sol_usd_val = raw.get("sol_usd")
+    sol_usd_age = raw.get("sol_usd_age_secs")
+    pnl_usd = (pnl_sol * float(sol_usd_val)) if sol_usd_val else None
+    ts_unix_ms = int(raw.get("ts_unix_ms", now_ms) or now_ms)
+    return {
+        "ok": True,
+        "reason": "ok",
+        "ts": ts_unix_ms,
+        "running": bool(raw.get("running", False)),
+        "daily_cap_lamports": cap,
+        "daily_spent_lamports": spent,
+        "daily_spent_pct": round(spent_pct, 4),
+        "kill_switch": {
+            "open": bool(ks.get("open", False)),
+            "stop_file_present": bool(ks.get("stop_file_present", False)),
+            "consecutive_losses": ks.get("consecutive_losses"),
+            "max_consecutive_losses": ks.get("max_consecutive_losses"),
+            "reason": ks.get("reason"),
+        },
+        "last_landed_bundle_id": llb.get("bundle_id"),
+        "last_landed_at_unix_ms": llb.get("ts_unix_ms"),
+        "last_landed_profit_lamports": llb.get("profit_lamports"),
+        "realized_pnl_today_lamports": pnl_lamports,
+        "realized_pnl_today_sol": pnl_sol,
+        "realized_pnl_today_usd": pnl_usd,
+        "sol_usd": sol_usd_val,
+        "sol_usd_source": sol_usd_src,
+        "sol_usd_age_secs": sol_usd_age,
+        "contract": {
+            "schema_version": sv,
+            "ts_unix_ms": ts_unix_ms,
+            "fields_present": fields_present,
+            "fields_missing": fields_missing,
+        },
+    }
+
+
 def run_script(name, *args):
     p = SCRIPTS / name
     if not p.exists():
@@ -265,6 +460,21 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 "DL_LIVE_POOL_PUBKEYS": env.get("DL_LIVE_POOL_PUBKEYS", ""),
                 "DL_LIVE_DURATION_SECS": env.get("DL_LIVE_DURATION_SECS", "3600"),
             })
+        elif path == "/api/live":
+            # v2.0 live-mode operator console (DAM-72). Source:
+            # ./live_status.json written by dl-app per DAM-82 contract v1.
+            # Returns ok=false (not 5xx) when the file is missing,
+            # malformed, or schema_mismatch — the dashboard JS renders
+            # the OFFLINE banner in that case.
+            self._send_json(api_live_snapshot())
+        elif path == "/live" or path == "/live.html":
+            # v2.0 live-mode operator console page (DAM-72).
+            # Sibling to "/" → "dashboard/index.html".
+            live_html = REPO / "dashboard" / "live.html"
+            if not live_html.exists():
+                self.send_error(404)
+                return
+            self._send_html(live_html.read_bytes())
         else:
             self.send_error(404)
 

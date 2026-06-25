@@ -1,0 +1,74 @@
+# Prometheus alerting rules for the Damascus Laundry v2.0 live bot.
+#
+# DAM-79: the two SLO #3 alerts (`DlSilentRevert` and
+# `DlSimulateGateHighRejection`) and their backing counters
+# (`dl_simulate_approved_total`, `dl_simulate_rejected_total`,
+# `dl_simulate_silent_revert_total`) are wired here.
+#
+# `dl_simulate_approved_total` and `dl_simulate_rejected_total`
+# are emitted by `dl-app/src/metrics_prom.rs::render_live_metrics_prom`
+# (the live runner increments them at the gate decision site in
+# `crates/dl-app/src/live.rs::submit_opportunity`).
+#
+# `dl_simulate_silent_revert_total` is computed offline by
+# `dl-recon replay-bundles` (see crates/dl-recon/src/bundles.rs
+# and crates/dl-recon/src/bin/replay_bundles.rs) and pushed to
+# the Prom endpoint by the recon cron-job. It is a *gauge* (not
+# a counter) so the `> 0` shape evaluates to "the last run
+# found a silent revert". A clean run resets the gauge to 0.
+
+groups:
+  - name: damascus_laundry.slo3
+    interval: 30s
+    rules:
+
+      # 1. DlSilentRevert (SLO #3 P0)
+      # Any silent revert is a SLO #3 violation -- the SLO is
+      # "0 silent reverts over a rolling 30-day window". Pages
+      # the on-call + the CTO + Security.
+      - alert: DlSilentRevert
+        expr: dl_simulate_silent_revert_total > 0
+        for: 1m
+        labels:
+          severity: page
+          team: sre
+          slo: simulate-gate-correctness
+        annotations:
+          summary: "SLO #3 violation: simulate gate approved a bundle that silently reverted"
+          description: |
+            dl-recon replay-bundles found
+            silent_revert_count={{ $value }} (1 sample = 1 P0).
+            Halt the bot (touch /run/damascus_laundry/STOP,
+            systemctl stop dl-app), open a P0 incident, page
+            the CTO + Security, write a postmortem within 48 h.
+          runbook_url: "docs/observability/runbook.md#dl-silent-revert"
+
+      # 2. DlSimulateGateHighRejection (SLO #3 leading indicator)
+      # Rejection rate > 50% for 5m: the pre-flight is catching
+      # more than half of bundles the detector produces. Either
+      # the EV model is miscalibrated, or the tip floor needs
+      # adjustment.
+      - alert: DlSimulateGateHighRejection
+        expr: |
+          (
+            sum(rate(dl_simulate_rejected_total[5m]))
+            /
+            clamp_min(
+              sum(rate(dl_simulate_approved_total[5m])) + sum(rate(dl_simulate_rejected_total[5m])),
+              0.001
+            )
+          ) > 0.5
+        for: 5m
+        labels:
+          severity: page
+          team: sre
+          slo: simulate-gate-correctness
+        annotations:
+          summary: "Simulate-gate rejection rate > 50% for 5m"
+          description: |
+            Rolling 5m rejection rate is
+            {{ $value | humanizePercentage }}.
+            Investigate via `dl-recon replay-bundles`.
+            approved_5m={{ with query "sum(rate(dl_simulate_approved_total[5m]))" }}{{ . | first | value }}{{ end }}
+            rejected_5m={{ with query "sum(rate(dl_simulate_rejected_total[5m]))" }}{{ . | first | value }}{{ end }}
+          runbook_url: "docs/observability/runbook.md#dl-simulate-gate-high-rejection"

@@ -1,0 +1,111 @@
+diff --git a/crates/dl-app/src/live.rs b/crates/dl-app/src/live.rs
+index 04d71fe..a8986b7 100644
+--- a/crates/dl-app/src/live.rs
++++ b/crates/dl-app/src/live.rs
+@@ -544,6 +544,37 @@ pub fn eval_params_from_calibration(
+     }
+ }
+ 
++/// DAM-54a: prune edges from the streaming detector's graph whose
++/// source pool is older than `max_pool_age_slots` slots at
++/// `now_slot`. Called by the live trading path on every
++/// `FeedEvent::Slot` so the price graph tracks real-time pool
++/// freshness instead of accumulating edges from pools that have
++/// gone silent.
++///
++/// `pools` is the **current** pool universe tracked by the live
++/// trading pipeline (the `raydium_pools` / `orca_pools` /
++/// `meteora_pools` maps in `run_live_paper` snapshotted via
++/// `snapshot_all_pools`). Each pool's `last_update_slot` is the
++/// baseline for the staleness check.
++///
++/// `max_pool_age_slots == 0` short-circuits to a no-op (matches
++/// `dl_feed::staleness` cold-start default).
++///
++/// Returns the [`PruneReport`] from `dl_detect::staleness` so the
++/// caller can log drop counts. The process-wide
++/// `STALE_EDGES_PRUNED_TOTAL` counter is bumped by the underlying
++/// `prune_stale_edges` call.
++pub fn handle_slot_event(
++    detector: &mut dl_stream::detector::StreamingDetector,
++    pools: &[dl_state::pool::Pool],
++    now_slot: u64,
++    max_pool_age_slots: u64,
++) -> dl_detect::staleness::PruneReport {
++    detector
++        .graph_mut()
++        .prune_stale_edges(pools, now_slot, max_pool_age_slots)
++}
++
+ /// Replay a `CapturedFeed` JSONL file through the streaming detector
+ /// and return every 3-leg cycle found. Used by
+ /// `dl-app run --feed capture <path>` to drive off-line replay
+diff --git a/crates/dl-app/src/main.rs b/crates/dl-app/src/main.rs
+index f4a4cc3..cc952dd 100644
+--- a/crates/dl-app/src/main.rs
++++ b/crates/dl-app/src/main.rs
+@@ -818,8 +818,10 @@ fn run_live_paper(wallet_path: &str, mode: &dl_signer::ResolvedLiveMode) {
+     use dl_sim::net_profit::NetProfit;
+     use dl_ledger::Decision;
+     use dl_detect::bellman_ford::find_negative_cycles;
++    use dl_detect::staleness::max_pool_age_slots_from_env;
+     use dl_core::feed::{Feed, FeedEvent};
+     use dl_state::Pubkey;
++    use dl_app::live::handle_slot_event;
+ 
+     let path = Path::new(wallet_path);
+     let mut wallet = if path.exists() {
+@@ -1023,6 +1025,13 @@ fn run_live_paper(wallet_path: &str, mode: &dl_signer::ResolvedLiveMode) {
+     let mut cycles_evaluated = 0u64;
+     let mut trades_written = 0u64;
+     let mut last_log = std::time::Instant::now();
++    // DAM-54a: read the staleness threshold once at startup so the
++    // per-slot prune is a constant-time lookup. 0 disables the guard
++    // (matches dl_feed::staleness cold-start default). Reset to a
++    // non-zero value to actually prune in this run.
++    let max_pool_age_slots: u64 = max_pool_age_slots_from_env();
++    let mut slot_prunes = 0u64;
++    let mut slot_edges_dropped = 0u64;
+ 
+     // No closure — we inline subscribe_account calls in the
+     // event loop to avoid borrow conflicts on `ws`.
+@@ -1033,10 +1042,36 @@ fn run_live_paper(wallet_path: &str, mode: &dl_signer::ResolvedLiveMode) {
+             std::thread::sleep(Duration::from_millis(50));
+             continue;
+         };
+-        let FeedEvent::AccountUpdate { pubkey, data, .. } = ev else {
+-            continue;
++        // DAM-54a: route `FeedEvent::Slot` to the graph-level
++        // staleness prune (recon + streaming already prune; the
++        // live trading path was the missing arm). `AccountUpdate`
++        // continues the existing decode pipeline below. Other
++        // variants (Pool snapshots, StalePoolHalt) are also no-op
++        // in this path — they are emitted by the v2.0 feed layer
++        // but the paper path subscribes to raw accounts.
++        let (pubkey, data, slot) = match ev {
++            FeedEvent::Slot { slot } => {
++                let pools = snapshot_all_pools(
++                    &raydium_pools,
++                    &orca_pools,
++                    &meteora_pools,
++                );
++                let report = handle_slot_event(
++                    &mut detector,
++                    &pools,
++                    slot,
++                    max_pool_age_slots,
++                );
++                slot_prunes += 1;
++                slot_edges_dropped += report.n_dropped() as u64;
++                continue;
++            }
++            FeedEvent::AccountUpdate { pubkey, data, slot, .. } => {
++                events += 1;
++                (pubkey, data, slot)
++            }
++            _ => continue,
+         };
+-        events += 1;
+ 
+         // FIRST-A: try to decode as an Orca Whirlpool. Accepts both
+         // the simplified 256-B layout (v1.0 tests / synthetic) and

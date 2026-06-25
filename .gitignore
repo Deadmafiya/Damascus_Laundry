@@ -7,8 +7,17 @@
 /data
 *.replay
 
+# Runtime-generated artifacts (wallets, logs, state, calibration captures)
+*.jsonl
+wallet*.json
+trader.log
+slo_state.json
+
 # Agent scratch space (plans, session state) — not part of project deliverables
 .hermes/
+
+# Code graph output — regenerated with `graphify update .`
+graphify-out/
 
 # Local env / secrets — NEVER commit keys (paper trading uses none in v1.0)
 .env
@@ -19,4 +28,9 @@
 .DS_Store
 .idea/
 .vscode/
+.claude/
+__pycache__/
+Cargo.toml.bak
+
+# Vendor build artifacts
 vendor/arbinexus/node_modules/

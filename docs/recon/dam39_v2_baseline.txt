@@ -1,0 +1,94 @@
+# DAM-39 v2 baseline backtest (Quant, Python reproduce)
+# source: 183 trades from /home/deadmafia/Documents/damascus_laundry/wallet.json, 6024 cycles from /home/deadmafia/Documents/damascus_laundry/wallet.cycles.jsonl
+# data_source=synthetic_fixture
+
+[v2.baseline]
+n_trades=183
+wins=66
+losses=117
+win_rate=0.3607
+gross_sum_lamports=10974000
+tip_sum_lamports=1830000
+net_lamports=9144000
+net_sol=0.009144
+mean_profit_lamports_per_trade=59967
+balance_starting_lamports=1000000000
+balance_ending_lamports=1010974000
+trade_window_s=34.98
+sharpe_per_trade=10.1908
+dsr_sr_hat=10.1908	dsr_sr_0_star=0.1948	dsr_n_strategies=1	dsr_t=183	dsr_skewness=0.5756	dsr_excess_kurtosis=-1.6777	dsr_denom=-74.3886	dsr_dsr=0.0000
+purged_cv_oos_sharpe_mean_n_folds=3	purged_cv_oos_sharpe_mean_embargo_pct=0.05	purged_cv_oos_sharpe_mean_mean_oos_sharpe=13.3974	purged_cv_oos_sharpe_mean_std_oos_sharpe=0.4752	purged_cv_oos_fold_sharpes=[13.7334,13.0615,nan]
+pbo_v2=None_reason=single_config_pbo_undefined
+
+[v2.funnel]
+n_cycles=6024
+cycle_window_h=14.08
+distinct_dex=1
+dex_list=['raydium']
+gross_bps_zero=4191
+gross_bps_positive=1833
+gross_bps_max=1840
+trades_per_detected_cycle=0.0304
+
+[v3.projected_sensitivity]
+mult=3.0	pwin=0.10	tip_lamports=10000	net_per_trade_lamports=7990	net_per_trade_sol=0.000007990
+mult=3.0	pwin=0.10	tip_lamports=50000	net_per_trade_lamports=-32010	net_per_trade_sol=-0.000032010
+mult=3.0	pwin=0.10	tip_lamports=100000	net_per_trade_lamports=-82010	net_per_trade_sol=-0.000082010
+mult=3.0	pwin=0.10	tip_lamports=500000	net_per_trade_lamports=-482010	net_per_trade_sol=-0.000482010
+mult=3.0	pwin=0.20	tip_lamports=10000	net_per_trade_lamports=25980	net_per_trade_sol=0.000025980
+mult=3.0	pwin=0.20	tip_lamports=50000	net_per_trade_lamports=-14020	net_per_trade_sol=-0.000014020
+mult=3.0	pwin=0.20	tip_lamports=100000	net_per_trade_lamports=-64020	net_per_trade_sol=-0.000064020
+mult=3.0	pwin=0.20	tip_lamports=500000	net_per_trade_lamports=-464020	net_per_trade_sol=-0.000464020
+mult=3.0	pwin=0.30	tip_lamports=10000	net_per_trade_lamports=43970	net_per_trade_sol=0.000043970
+mult=3.0	pwin=0.30	tip_lamports=50000	net_per_trade_lamports=3970	net_per_trade_sol=0.000003970
+mult=3.0	pwin=0.30	tip_lamports=100000	net_per_trade_lamports=-46030	net_per_trade_sol=-0.000046030
+mult=3.0	pwin=0.30	tip_lamports=500000	net_per_trade_lamports=-446030	net_per_trade_sol=-0.000446030
+mult=3.0	pwin=0.50	tip_lamports=10000	net_per_trade_lamports=79951	net_per_trade_sol=0.000079951
+mult=3.0	pwin=0.50	tip_lamports=50000	net_per_trade_lamports=39951	net_per_trade_sol=0.000039951
+mult=3.0	pwin=0.50	tip_lamports=100000	net_per_trade_lamports=-10049	net_per_trade_sol=-0.000010049
+mult=3.0	pwin=0.50	tip_lamports=500000	net_per_trade_lamports=-410049	net_per_trade_sol=-0.000410049
+mult=5.0	pwin=0.10	tip_lamports=10000	net_per_trade_lamports=19984	net_per_trade_sol=0.000019984
+mult=5.0	pwin=0.10	tip_lamports=50000	net_per_trade_lamports=-20016	net_per_trade_sol=-0.000020016
+mult=5.0	pwin=0.10	tip_lamports=100000	net_per_trade_lamports=-70016	net_per_trade_sol=-0.000070016
+mult=5.0	pwin=0.10	tip_lamports=500000	net_per_trade_lamports=-470016	net_per_trade_sol=-0.000470016
+mult=5.0	pwin=0.20	tip_lamports=10000	net_per_trade_lamports=49967	net_per_trade_sol=0.000049967
+mult=5.0	pwin=0.20	tip_lamports=50000	net_per_trade_lamports=9967	net_per_trade_sol=0.000009967
+mult=5.0	pwin=0.20	tip_lamports=100000	net_per_trade_lamports=-40033	net_per_trade_sol=-0.000040033
+mult=5.0	pwin=0.20	tip_lamports=500000	net_per_trade_lamports=-440033	net_per_trade_sol=-0.000440033
+mult=5.0	pwin=0.30	tip_lamports=10000	net_per_trade_lamports=79951	net_per_trade_sol=0.000079951
+mult=5.0	pwin=0.30	tip_lamports=50000	net_per_trade_lamports=39951	net_per_trade_sol=0.000039951
+mult=5.0	pwin=0.30	tip_lamports=100000	net_per_trade_lamports=-10049	net_per_trade_sol=-0.000010049
+mult=5.0	pwin=0.30	tip_lamports=500000	net_per_trade_lamports=-410049	net_per_trade_sol=-0.000410049
+mult=5.0	pwin=0.50	tip_lamports=10000	net_per_trade_lamports=139918	net_per_trade_sol=0.000139918
+mult=5.0	pwin=0.50	tip_lamports=50000	net_per_trade_lamports=99918	net_per_trade_sol=0.000099918
+mult=5.0	pwin=0.50	tip_lamports=100000	net_per_trade_lamports=49918	net_per_trade_sol=0.000049918
+mult=5.0	pwin=0.50	tip_lamports=500000	net_per_trade_lamports=-350082	net_per_trade_sol=-0.000350082
+mult=10.0	pwin=0.10	tip_lamports=10000	net_per_trade_lamports=49967	net_per_trade_sol=0.000049967
+mult=10.0	pwin=0.10	tip_lamports=50000	net_per_trade_lamports=9967	net_per_trade_sol=0.000009967
+mult=10.0	pwin=0.10	tip_lamports=100000	net_per_trade_lamports=-40033	net_per_trade_sol=-0.000040033
+mult=10.0	pwin=0.10	tip_lamports=500000	net_per_trade_lamports=-440033	net_per_trade_sol=-0.000440033
+mult=10.0	pwin=0.20	tip_lamports=10000	net_per_trade_lamports=109934	net_per_trade_sol=0.000109934
+mult=10.0	pwin=0.20	tip_lamports=50000	net_per_trade_lamports=69934	net_per_trade_sol=0.000069934
+mult=10.0	pwin=0.20	tip_lamports=100000	net_per_trade_lamports=19934	net_per_trade_sol=0.000019934
+mult=10.0	pwin=0.20	tip_lamports=500000	net_per_trade_lamports=-380066	net_per_trade_sol=-0.000380066
+mult=10.0	pwin=0.30	tip_lamports=10000	net_per_trade_lamports=169902	net_per_trade_sol=0.000169902
+mult=10.0	pwin=0.30	tip_lamports=50000	net_per_trade_lamports=129902	net_per_trade_sol=0.000129902
+mult=10.0	pwin=0.30	tip_lamports=100000	net_per_trade_lamports=79902	net_per_trade_sol=0.000079902
+mult=10.0	pwin=0.30	tip_lamports=500000	net_per_trade_lamports=-320098	net_per_trade_sol=-0.000320098
+mult=10.0	pwin=0.50	tip_lamports=10000	net_per_trade_lamports=289836	net_per_trade_sol=0.000289836
+mult=10.0	pwin=0.50	tip_lamports=50000	net_per_trade_lamports=249836	net_per_trade_sol=0.000249836
+mult=10.0	pwin=0.50	tip_lamports=100000	net_per_trade_lamports=199836	net_per_trade_sol=0.000199836
+mult=10.0	pwin=0.50	tip_lamports=500000	net_per_trade_lamports=-200164	net_per_trade_sol=-0.000200164
+
+[v3.ship_gate_precheck]
+runs_available=1
+runs_required=30
+dsr_measurable_from_data=computable_but_degenerate_denominator
+pbo_measurable_from_data=undefined_single_config
+anchor_dataset_present=check_anchors_v0_jsonl
+ship_gate_1_sample_size=PASS_BUT_UNDERPOWERED
+ship_gate_2_dsr_or_pbo=PENDING_DATA
+ship_gate_3_anchors=PENDING_DATA
+recommendation=DEFER_GO_LIVE_MEASURE_V2_BASELINE
+
+# end DAM-39 v2 baseline backtest
